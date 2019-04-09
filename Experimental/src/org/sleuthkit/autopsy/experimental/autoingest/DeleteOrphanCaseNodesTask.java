@@ -31,21 +31,21 @@ import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.progress.ProgressIndicator;
 
 /**
- * Task for cleaning up case coordination service nodes for which there is no
+ * Task for deleting case coordination service nodes for which there is no
  * longer a corresponding case.
  */
-final class CaseNodesCleanupTask implements Runnable {
+final class DeleteOrphanCaseNodesTask implements Runnable {
 
     private static final Logger logger = AutoIngestDashboardLogger.getLogger();
     private final ProgressIndicator progress;
 
     /**
-     * Constucts an instance of a task for cleaning up case coordination service
+     * Constucts an instance of a task for deleting case coordination service
      * nodes for which there is no longer a corresponding case.
      *
      * @param progress
      */
-    CaseNodesCleanupTask(ProgressIndicator progress) {
+    DeleteOrphanCaseNodesTask(ProgressIndicator progress) {
         this.progress = progress;
     }
 
@@ -53,7 +53,7 @@ final class CaseNodesCleanupTask implements Runnable {
     @NbBundle.Messages({
         "CaseNodesCleanupTask.progress.startMessage=Starting orphaned case znode cleanup...",
         "CaseNodesCleanupTask.progress.connectingToCoordSvc=Connecting to the coordination service...",
-        "CaseNodesCleanupTask.progress.gettingCaseNodesListing=Querying coordination service for case nodes..."
+        "CaseNodesCleanupTask.progress.gettingCaseNodesListing=Querying coordination service for case znodes..."
     })
     public void run() {
         progress.start(Bundle.CaseNodesCleanupTask_progress_startMessage());
@@ -115,7 +115,7 @@ final class CaseNodesCleanupTask implements Runnable {
              */
             logger.log(Level.SEVERE, "Unexpected error during orphan case znode cleanup", ex); // NON-NLS
             throw ex;
-            
+
         } finally {
             progress.finish();
         }
