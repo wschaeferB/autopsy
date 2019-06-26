@@ -137,7 +137,7 @@ public class MessagesPanel extends javax.swing.JPanel implements Lookup.Provider
                 new TableFilterNode(
                         new DataResultFilterNode(
                                 new AbstractNode(
-                                        Children.create(nodeFactory, true)),
+                                        Children.create(nodeFactory, false)),
                                 outlineViewPanel.getExplorerManager()), true));
     }
 
