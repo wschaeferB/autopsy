@@ -260,6 +260,7 @@ public class MessageViewer extends JPanel implements RelationshipsViewer {
             public void run() {
                 CardLayout layout = (CardLayout)getLayout();
                 layout.show(MessageViewer.this, cardName);
+                threadMessagesPanel.selectFirstMessage();
             }
         });
     }

@@ -22,6 +22,8 @@ import java.awt.Component;
 import java.awt.KeyboardFocusManager;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.beans.PropertyVetoException;
+import java.util.logging.Level;
 import static javax.swing.SwingUtilities.isDescendingFrom;
 import org.netbeans.swing.outline.DefaultOutlineModel;
 import org.netbeans.swing.outline.Outline;
@@ -34,25 +36,27 @@ import org.openide.nodes.Node;
 import org.openide.util.Lookup;
 import org.sleuthkit.autopsy.communications.ModifiableProxyLookup;
 import org.sleuthkit.autopsy.corecomponents.TableFilterNode;
+import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.directorytree.DataResultFilterNode;
 
 /**
  *
- * General Purpose class for panels that need OutlineView of message nodes at 
+ * General Purpose class for panels that need OutlineView of message nodes at
  * the top with a MessageContentViewer at the bottom.
  */
 public class MessagesPanel extends javax.swing.JPanel implements Lookup.Provider {
 
+    private static final Logger logger = Logger.getLogger(MessagesPanel.class.getName());
     private final Outline outline;
     private final ModifiableProxyLookup proxyLookup;
     private final PropertyChangeListener focusPropertyListener;
-    
+
     /**
      * Creates new form MessagesPanel
      */
     public MessagesPanel() {
         initComponents();
-        
+
         proxyLookup = new ModifiableProxyLookup(createLookup(outlineViewPanel.getExplorerManager(), getActionMap()));
 
         // See org.sleuthkit.autopsy.timeline.TimeLineTopComponent for a detailed
@@ -84,31 +88,30 @@ public class MessagesPanel extends javax.swing.JPanel implements Lookup.Provider
                 "Attms", Bundle.MessageViewer_columnHeader_Attms()
         );
         outline.setRootVisible(false);
-        ((DefaultOutlineModel) outline.getOutlineModel()).setNodesColumnLabel("Type");
 
+        ((DefaultOutlineModel) outline.getOutlineModel()).setNodesColumnLabel("Type");
         outlineViewPanel.getExplorerManager().addPropertyChangeListener((PropertyChangeEvent evt) -> {
             if (evt.getPropertyName().equals(ExplorerManager.PROP_SELECTED_NODES)) {
                 final Node[] nodes = outlineViewPanel.getExplorerManager().getSelectedNodes();
 
                 if (nodes != null && nodes.length == 1) {
                     messageContentViewer.setNode(nodes[0]);
-                }
-                else {
+                } else {
                     messageContentViewer.setNode(null);
                 }
             }
         });
-        
+
         splitPane.setResizeWeight(0.5);
         splitPane.setDividerLocation(0.5);
-        outlineViewPanel.setTableColumnsWidth(5,10,10,15,50,10);
+        outlineViewPanel.setTableColumnsWidth(5, 10, 10, 15, 50, 10);
     }
-    
+
     public MessagesPanel(ChildFactory<?> nodeFactory) {
         this();
         setChildFactory(nodeFactory);
     }
-    
+
     @Override
     public Lookup getLookup() {
         return proxyLookup;
@@ -135,9 +138,23 @@ public class MessagesPanel extends javax.swing.JPanel implements Lookup.Provider
                         new DataResultFilterNode(
                                 new AbstractNode(
                                         Children.create(nodeFactory, true)),
-                                outlineViewPanel.getExplorerManager()),true));
+                                outlineViewPanel.getExplorerManager()), true));
     }
-    
+
+    /**
+     * If the root context has at least one child node set the first child node
+     * as the selected node.
+     */
+    void selectFirstMessage() {
+        if (outlineViewPanel.getExplorerManager().getRootContext().getChildren().getNodesCount() > 0) {
+            try {
+                outlineViewPanel.getExplorerManager().setExploredContextAndSelection(outlineViewPanel.getExplorerManager().getRootContext().getChildren().getNodeAt(0), new Node[]{outlineViewPanel.getExplorerManager().getRootContext().getChildren().getNodeAt(0)});
+            } catch (PropertyVetoException ex) {
+                logger.log(Level.WARNING, "Unable to selected first node in messages panel", ex);
+            }
+        }
+    }
+
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
