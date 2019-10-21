@@ -53,7 +53,7 @@ final class DiscoveryTopComponent extends TopComponent implements ExplorerManage
     private static final String PREFERRED_ID = "DiscoveryTopComponent"; // NON-NLS
     private final static Logger logger = Logger.getLogger(DiscoveryTopComponent.class.getName());
     private final ExplorerManager em = new ExplorerManager();
-    private final Lookup lookup = (ExplorerUtils.createLookup(em, getActionMap()));
+    private final Lookup lookup;
     private final FileSearchPanel fileSearchPanel;
     private final GroupListPanel groupListPanel;
     private final DataContentPanel dataContentPanel;
@@ -75,6 +75,7 @@ final class DiscoveryTopComponent extends TopComponent implements ExplorerManage
             }
         }
         setName(Bundle.DiscoveryTopComponent_name());
+        lookup = (ExplorerUtils.createLookup(em, getActionMap()));
         fileSearchPanel = new FileSearchPanel(Case.getCurrentCase().getSleuthkitCase(), centralRepoDb);
         dataContentPanel = DataContentPanel.createInstance();
         resultsPanel = new ResultsPanel(centralRepoDb);
