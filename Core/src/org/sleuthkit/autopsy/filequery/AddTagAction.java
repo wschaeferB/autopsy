@@ -57,7 +57,7 @@ public class AddTagAction extends AbstractAction {
     private final Set<AbstractFile> selectedFileIDs;
     private final TagName tagName;
 
-    public AddTagAction(TagName tagName, Set<AbstractFile> selectedFileIDs, String notableString) {
+    AddTagAction(TagName tagName, Set<AbstractFile> selectedFileIDs, String notableString) {
         super(tagName.getDisplayName() + notableString);
         this.selectedFileIDs = selectedFileIDs;
         this.tagName = tagName;

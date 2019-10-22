@@ -7,6 +7,9 @@ AddTagAction.menuItem.noTags=No tags
 AddTagAction.menuItem.quickTag=Quick Tag
 AddTagAction.menuItem.tagAndComment=Tag and Comment...
 CTL_FileDiscoveryTestAction=Test file discovery
+DeleteDrawableTagAction.displayName=Remove File Tag
+# {0} - fileID
+DeleteTagAction.deleteTag.alert=Unable to untag file {0}.
 DiscoveryTopComponent.name=\ File Discovery
 ExtractAction2.title.extractFiles.text=Extract File
 # {0} - Data source name

@@ -42,7 +42,7 @@ import javax.swing.event.ListSelectionListener;
 import org.openide.nodes.AbstractNode;
 import org.openide.nodes.Children;
 import org.openide.util.NbBundle.Messages;
-import org.sleuthkit.autopsy.actions.DeleteFileContentTagAction;
+import org.openide.util.actions.Presenter;
 import org.sleuthkit.autopsy.centralrepository.datamodel.EamDb;
 import org.sleuthkit.autopsy.coreutils.ImageUtils;
 import org.sleuthkit.autopsy.coreutils.Logger;
@@ -123,9 +123,11 @@ public class ResultsPanel extends javax.swing.JPanel {
                         files.add(instancesList.getSelectedValue());
                         menu.add(ExtractAction2.getInstance(files));
                         menu.add(AddTagAction.getTagMenu(files));
-                        menu.add(DeleteFileContentTagAction.getInstance());
+                        menu.add(DeleteTagAction.getTagMenu(instancesList.getSelectedValue()));
                         for (Action action : (new HashDbContextMenuActionsProvider().getActions())) {
-                            menu.add(action);
+                            if (action instanceof Presenter.Popup) {
+                                menu.add(((Presenter.Popup) action).getPopupPresenter());
+                            }
                         }
                         menu.show(instancesList, e.getPoint().x, e.getPoint().y);
                     });

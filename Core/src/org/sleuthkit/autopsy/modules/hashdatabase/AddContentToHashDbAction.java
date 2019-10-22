@@ -83,6 +83,7 @@ final class AddContentToHashDbAction extends AbstractAction implements Presenter
     private AddContentToHashDbAction() {
     }
 
+
     @Override
     public JMenuItem getPopupPresenter() {
         return new AddContentToHashDbMenu();
