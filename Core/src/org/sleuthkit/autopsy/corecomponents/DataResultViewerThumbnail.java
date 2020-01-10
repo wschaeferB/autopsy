@@ -48,6 +48,7 @@ import org.openide.nodes.NodeEvent;
 import org.openide.nodes.NodeListener;
 import org.openide.nodes.NodeMemberEvent;
 import org.openide.nodes.NodeReorderEvent;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.NbPreferences;
 import org.openide.util.lookup.ServiceProvider;
@@ -123,7 +124,7 @@ public final class DataResultViewerThumbnail extends AbstractDataResultViewer {
         currentPage = -1;
         totalPages = 0;
         currentPageImages = 0;
-        
+
         // The GUI builder is using FlowLayout therefore this change so have no
         // impact on the initally designed layout.  This change will just effect
         // how the components are laid out as size of the window changes.
@@ -595,8 +596,7 @@ public final class DataResultViewerThumbnail extends AbstractDataResultViewer {
                                     NotifyDescriptor.ERROR_MESSAGE);
                     DialogDisplayer.getDefault().notify(d);
                     logger.log(Level.SEVERE, "Error making thumbnails: {0}", ex.getMessage()); //NON-NLS
-                }
-                catch (java.util.concurrent.CancellationException ex) {
+                } catch (java.util.concurrent.CancellationException ex) {
                     // catch and ignore if we were cancelled
                 }
             }
@@ -737,12 +737,21 @@ public final class DataResultViewerThumbnail extends AbstractDataResultViewer {
                         if (af == null) {
                             filePathLabel.setText("");
                         } else {
+                            //WJS-TODO 5934
+                            Thread thread5934 = new Thread(() -> {
+                                try {
+                                    String uPath = af.getUniquePath();
+                                    filePathLabel.setText(uPath);
+                                    filePathLabel.setToolTipText(uPath);
+                                } catch (TskCoreException e) {
+                                    logger.log(Level.WARNING, "Could not get unique path for content: {0}", af.getName()); //NON-NLS
+                                }
+                            });
                             try {
-                                String uPath = af.getUniquePath();
-                                filePathLabel.setText(uPath);
-                                filePathLabel.setToolTipText(uPath);
-                            } catch (TskCoreException e) {
-                                logger.log(Level.WARNING, "Could not get unique path for content: {0}", af.getName()); //NON-NLS
+                                thread5934.start();
+                                thread5934.join();
+                            } catch (InterruptedException ex) {
+                                Exceptions.printStackTrace(ex);
                             }
                         }
                     } else {
@@ -753,5 +762,5 @@ public final class DataResultViewerThumbnail extends AbstractDataResultViewer {
                 }
             }
         }
-    } 
+    }
 }

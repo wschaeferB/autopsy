@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.logging.Level;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -72,46 +73,55 @@ public class VirtualDirectoryNode extends SpecialDirectoryNode {
         "VirtualDirectoryNode.createSheet.deviceId.desc=Device ID of the image"})
     protected Sheet createSheet() {
         //Do a special strategy for virtual directories..
-        if(this.content.isDataSource()){
+        if (this.content.isDataSource()) {
             Sheet sheet = new Sheet();
             Sheet.Set sheetSet = Sheet.createPropertiesSet();
             sheet.put(sheetSet);
-            
-            sheetSet.put(new NodeProperty<>(NbBundle.getMessage(this.getClass(), "VirtualDirectoryNode.createSheet.name.name"),
-                NbBundle.getMessage(this.getClass(),
-                        "VirtualDirectoryNode.createSheet.name.displayName"),
-                NbBundle.getMessage(this.getClass(), "VirtualDirectoryNode.createSheet.name.desc"),
-                getName()));
-        
-            sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_type_name(),
-                    Bundle.VirtualDirectoryNode_createSheet_type_displayName(),
-                    Bundle.VirtualDirectoryNode_createSheet_type_desc(),
-                    Bundle.VirtualDirectoryNode_createSheet_type_text()));
-            sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_size_name(),
-                    Bundle.VirtualDirectoryNode_createSheet_size_displayName(),
-                    Bundle.VirtualDirectoryNode_createSheet_size_desc(),
-                    this.content.getSize()));
-            try (SleuthkitCase.CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT time_zone FROM data_source_info WHERE obj_id = " + this.content.getId())) {
-                ResultSet timeZoneSet = query.getResultSet();
-                if (timeZoneSet.next()) {
-                    sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_timezone_name(),
-                            Bundle.VirtualDirectoryNode_createSheet_timezone_displayName(),
-                            Bundle.VirtualDirectoryNode_createSheet_timezone_desc(),
-                            timeZoneSet.getString("time_zone")));
+            //WJS-TODO 5934
+            Thread thread5934 = new Thread(() -> {
+                sheetSet.put(new NodeProperty<>(NbBundle.getMessage(this.getClass(), "VirtualDirectoryNode.createSheet.name.name"),
+                        NbBundle.getMessage(this.getClass(),
+                                "VirtualDirectoryNode.createSheet.name.displayName"),
+                        NbBundle.getMessage(this.getClass(), "VirtualDirectoryNode.createSheet.name.desc"),
+                        getName()));
+
+                sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_type_name(),
+                        Bundle.VirtualDirectoryNode_createSheet_type_displayName(),
+                        Bundle.VirtualDirectoryNode_createSheet_type_desc(),
+                        Bundle.VirtualDirectoryNode_createSheet_type_text()));
+                sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_size_name(),
+                        Bundle.VirtualDirectoryNode_createSheet_size_displayName(),
+                        Bundle.VirtualDirectoryNode_createSheet_size_desc(),
+                        this.content.getSize()));
+
+                try (SleuthkitCase.CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT time_zone FROM data_source_info WHERE obj_id = " + this.content.getId())) {
+                    ResultSet timeZoneSet = query.getResultSet();
+                    if (timeZoneSet.next()) {
+                        sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_timezone_name(),
+                                Bundle.VirtualDirectoryNode_createSheet_timezone_displayName(),
+                                Bundle.VirtualDirectoryNode_createSheet_timezone_desc(),
+                                timeZoneSet.getString("time_zone")));
+                    }
+                } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
+                    logger.log(Level.SEVERE, "Failed to get time zone for the following image: " + this.content.getId(), ex);
                 }
-            } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
-                logger.log(Level.SEVERE, "Failed to get time zone for the following image: " + this.content.getId(), ex);
-            }
-            try (SleuthkitCase.CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT device_id FROM data_source_info WHERE obj_id = " + this.content.getId());) {
-                ResultSet deviceIdSet = query.getResultSet();
-                if (deviceIdSet.next()) {
-                    sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_deviceId_name(),
-                            Bundle.VirtualDirectoryNode_createSheet_deviceId_displayName(),
-                            Bundle.VirtualDirectoryNode_createSheet_deviceId_desc(),
-                            deviceIdSet.getString("device_id")));
+                try (SleuthkitCase.CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT device_id FROM data_source_info WHERE obj_id = " + this.content.getId());) {
+                    ResultSet deviceIdSet = query.getResultSet();
+                    if (deviceIdSet.next()) {
+                        sheetSet.put(new NodeProperty<>(Bundle.VirtualDirectoryNode_createSheet_deviceId_name(),
+                                Bundle.VirtualDirectoryNode_createSheet_deviceId_displayName(),
+                                Bundle.VirtualDirectoryNode_createSheet_deviceId_desc(),
+                                deviceIdSet.getString("device_id")));
+                    }
+                } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
+                    logger.log(Level.SEVERE, "Failed to get device id for the following image: " + this.content.getId(), ex);
                 }
-            } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
-                logger.log(Level.SEVERE, "Failed to get device id for the following image: " + this.content.getId(), ex);
+            });
+            try {
+                thread5934.start();
+                thread5934.join();
+            } catch (InterruptedException ex) {
+                Exceptions.printStackTrace(ex);
             }
             return sheet;
         }
@@ -119,16 +129,16 @@ public class VirtualDirectoryNode extends SpecialDirectoryNode {
         //Otherwise default to the AAFN createSheet method.
         Sheet defaultSheet = super.createSheet();
         Sheet.Set defaultSheetSet = defaultSheet.get(Sheet.PROPERTIES);
-        
+
         //Pick out the location column
         //This path should not show because VDs are not part of the data source
         String locationCol = NbBundle.getMessage(AbstractAbstractFileNode.class, "AbstractAbstractFileNode.locationColLbl");
         for (Property<?> p : defaultSheetSet.getProperties()) {
-            if(locationCol.equals(p.getName())) {
+            if (locationCol.equals(p.getName())) {
                 defaultSheetSet.remove(p.getName());
             }
         }
-        
+
         return defaultSheet;
     }
 

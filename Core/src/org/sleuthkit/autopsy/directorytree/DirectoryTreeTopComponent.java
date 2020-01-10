@@ -53,6 +53,7 @@ import org.openide.nodes.Children;
 import org.openide.nodes.Node;
 import org.openide.nodes.NodeNotFoundException;
 import org.openide.nodes.NodeOp;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
 import org.openide.windows.TopComponent;
@@ -506,127 +507,141 @@ public final class DirectoryTreeTopComponent extends TopComponent implements Dat
     public void componentOpened() {
         // change the cursor to "waiting cursor" for this operation
         this.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        Case currentCase = null;
-        try {
-            currentCase = Case.getCurrentCaseThrows();
-        } catch (NoCurrentCaseException ex) {
-            // No open case.
-        }
 
-        // close the top component if there's no image in this case
-        if (null == currentCase || currentCase.hasData() == false) {
-            getTree().setRootVisible(false); // hide the root
-        } else {
-            // If the case contains a lot of data sources, and they aren't already grouping
-            // by data source, give the user the option to do so before loading the tree.
-            if (RuntimeProperties.runningWithGUI()) {
-                long threshold = DEFAULT_DATASOURCE_GROUPING_THRESHOLD;
-                if (ModuleSettings.settingExists(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME)) {
-                    try {
-                        threshold = Long.parseLong(ModuleSettings.getConfigSetting(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME));
-                    } catch (NumberFormatException ex) {
-                        LOGGER.log(Level.SEVERE, "Group data sources threshold is not a number", ex);
-                    }
-                } else {
-                    ModuleSettings.setConfigSetting(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME, String.valueOf(threshold));
-                }
-
-                try {
-                    int dataSourceCount = currentCase.getDataSources().size();
-                    if (!Objects.equals(CasePreferences.getGroupItemsInTreeByDataSource(), true)
-                            && dataSourceCount > threshold) {
-                        promptForDataSourceGrouping(dataSourceCount);
-                    }
-                } catch (TskCoreException ex) {
-                    LOGGER.log(Level.SEVERE, "Error loading data sources", ex);
-                }
+        //WJS-TODO 5934
+        Thread thread5934 = new Thread(() -> {
+            Case currentCase = null;
+            try {
+                currentCase = Case.getCurrentCaseThrows();
+            } catch (NoCurrentCaseException ex) {
+                // No open case.
             }
 
-            // if there's at least one image, load the image and open the top componen
-            autopsyTreeChildFactory = new AutopsyTreeChildFactory();
-            autopsyTreeChildren = Children.create(autopsyTreeChildFactory, true);
-            Node root = new AbstractNode(autopsyTreeChildren) {
-                //JIRA-2807: What is the point of these overrides?
-                /**
-                 * to override the right click action in the white blank space
-                 * area on the directory tree window
-                 */
-                @Override
-                public Action[] getActions(boolean popup) {
-                    return new Action[]{};
-                }
-
-                // Overide the AbstractNode use of DefaultHandle to return
-                // a handle which can be serialized without a parent
-                @Override
-                public Node.Handle getHandle() {
-                    return new Node.Handle() {
-                        @Override
-                        public Node getNode() throws IOException {
-                            return em.getRootContext();
+            // close the top component if there's no image in this case
+            if (null == currentCase || currentCase.hasData() == false) {
+                getTree().setRootVisible(false); // hide the root
+            } else {
+                // If the case contains a lot of data sources, and they aren't already grouping
+                // by data source, give the user the option to do so before loading the tree.
+                if (RuntimeProperties.runningWithGUI()) {
+                    long threshold = DEFAULT_DATASOURCE_GROUPING_THRESHOLD;
+                    if (ModuleSettings.settingExists(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME)) {
+                        try {
+                            threshold = Long.parseLong(ModuleSettings.getConfigSetting(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME));
+                        } catch (NumberFormatException ex) {
+                            LOGGER.log(Level.SEVERE, "Group data sources threshold is not a number", ex);
                         }
-                    };
-                }
-            };
-
-            root = new DirectoryTreeFilterNode(root, true);
-
-            em.setRootContext(root);
-            em.getRootContext().setName(currentCase.getName());
-            em.getRootContext().setDisplayName(currentCase.getName());
-            getTree().setRootVisible(false); // hide the root
-
-            // Reset the forward and back lists because we're resetting the root context
-            resetHistory();
-            new SwingWorker<Node[], Void>() {
-                @Override
-                protected Node[] doInBackground() throws Exception {
-                    Children rootChildren = em.getRootContext().getChildren();
-                    preExpandNodes(rootChildren);
-                    /*
-                     * JIRA-2806: What is this supposed to do? Right now it
-                     * selects the data sources node, but the comment seems to
-                     * indicate it is supposed to select the first datasource.
-                     */
-                    // select the first image node, if there is one
-                    // (this has to happen after dataResult is opened, because the event
-                    // of changing the selected node fires a handler that tries to make
-                    // dataResult active)
-                    if (rootChildren.getNodesCount() > 0) {
-                        return new Node[]{rootChildren.getNodeAt(0)};
+                    } else {
+                        ModuleSettings.setConfigSetting(ModuleSettings.MAIN_SETTINGS, GROUPING_THRESHOLD_NAME, String.valueOf(threshold));
                     }
-                    return new Node[]{};
-                }
 
-                @Override
-                protected void done() {
-                    super.done();
-
-                    // if the dataResult is not opened
-                    if (!dataResult.isOpened()) {
-                        dataResult.open(); // open the data result top component as well when the directory tree is opened
-                    }
-                    /*
-                     * JIRA-2806: What is this supposed to do?
-                     */
-                    // select the first image node, if there is one
-                    // (this has to happen after dataResult is opened, because the event
-                    // of changing the selected node fires a handler that tries to make
-                    // dataResult active)
                     try {
-                        Node[] selections = get();
-                        if (selections != null && selections.length > 0) {
-                            em.setSelectedNodes(selections);
+                        int dataSourceCount = currentCase.getDataSources().size();
+                        if (!Objects.equals(CasePreferences.getGroupItemsInTreeByDataSource(), true)
+                                && dataSourceCount > threshold) {
+                            promptForDataSourceGrouping(dataSourceCount);
                         }
-                    } catch (PropertyVetoException ex) {
-                        LOGGER.log(Level.SEVERE, "Error setting default selected node.", ex); //NON-NLS
-                    } catch (InterruptedException | ExecutionException ex) {
-                        LOGGER.log(Level.SEVERE, "Error expanding tree to initial state.", ex); //NON-NLS
-                    } finally {
-                        setCursor(null);
+                    } catch (TskCoreException ex) {
+                        LOGGER.log(Level.SEVERE, "Error loading data sources", ex);
                     }
                 }
-            }.execute();
+
+                // if there's at least one image, load the image and open the top componen
+                autopsyTreeChildFactory = new AutopsyTreeChildFactory();
+                autopsyTreeChildren = Children.create(autopsyTreeChildFactory, true);
+                Node root = new AbstractNode(autopsyTreeChildren) {
+                    //JIRA-2807: What is the point of these overrides?
+                    /**
+                     * to override the right click action in the white blank
+                     * space area on the directory tree window
+                     */
+                    @Override
+                    public Action[] getActions(boolean popup) {
+                        return new Action[]{};
+                    }
+
+                    // Overide the AbstractNode use of DefaultHandle to return
+                    // a handle which can be serialized without a parent
+                    @Override
+                    public Node.Handle getHandle() {
+                        return new Node.Handle() {
+                            @Override
+                            public Node getNode() throws IOException {
+                                return em.getRootContext();
+                            }
+                        };
+                    }
+                };
+
+                root = new DirectoryTreeFilterNode(root, true);
+
+                em.setRootContext(root);
+                em.getRootContext().setName(currentCase.getName());
+                em.getRootContext().setDisplayName(currentCase.getName());
+                SwingUtilities.invokeLater(() -> {
+                    getTree().setRootVisible(false); // hide the root
+
+                    // Reset the forward and back lists because we're resetting the root context
+                    resetHistory();
+                    new SwingWorker<Node[], Void>() {
+                        @Override
+                        protected Node[] doInBackground() throws Exception {
+                            Children rootChildren = em.getRootContext().getChildren();
+                            preExpandNodes(rootChildren);
+                            /*
+                             * JIRA-2806: What is this supposed to do? Right now
+                             * it selects the data sources node, but the comment
+                             * seems to indicate it is supposed to select the
+                             * first datasource.
+                             */
+                            // select the first image node, if there is one
+                            // (this has to happen after dataResult is opened, because the event
+                            // of changing the selected node fires a handler that tries to make
+                            // dataResult active)
+                            if (rootChildren.getNodesCount() > 0) {
+                                return new Node[]{rootChildren.getNodeAt(0)};
+                            }
+                            return new Node[]{};
+                        }
+
+                        @Override
+                        protected void done() {
+                            super.done();
+
+                            // if the dataResult is not opened
+                            if (!dataResult.isOpened()) {
+                                dataResult.open(); // open the data result top component as well when the directory tree is opened
+                            }
+                            /*
+                             * JIRA-2806: What is this supposed to do?
+                             */
+                            // select the first image node, if there is one
+                            // (this has to happen after dataResult is opened, because the event
+                            // of changing the selected node fires a handler that tries to make
+                            // dataResult active)
+                            try {
+                                Node[] selections = get();
+                                if (selections != null && selections.length > 0) {
+                                    em.setSelectedNodes(selections);
+                                }
+                            } catch (PropertyVetoException ex) {
+                                LOGGER.log(Level.SEVERE, "Error setting default selected node.", ex); //NON-NLS
+                            } catch (InterruptedException | ExecutionException ex) {
+                                LOGGER.log(Level.SEVERE, "Error expanding tree to initial state.", ex); //NON-NLS
+                            } finally {
+                                setCursor(null);
+                            }
+                        }
+                    }.execute();
+                });
+            }
+        });
+
+        try {
+            thread5934.start();
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
         }
     }
 
@@ -637,6 +652,7 @@ public final class DirectoryTreeTopComponent extends TopComponent implements Dat
      * usually perform cleaning tasks here.
      */
     @Override
+
     public void componentClosed() {
         //@@@ push the selection node to null?
         autopsyTreeChildren = null;
@@ -796,7 +812,7 @@ public final class DirectoryTreeTopComponent extends TopComponent implements Dat
             } // change in node selection
             else if (changed.equals(ExplorerManager.PROP_SELECTED_NODES)) {
                 respondSelection((Node[]) event.getOldValue(), (Node[]) event.getNewValue());
-            } 
+            }
         }
     }
 

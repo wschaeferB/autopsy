@@ -23,6 +23,9 @@ import java.awt.Component;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -40,13 +43,16 @@ import org.openide.awt.ActionID;
 import org.openide.awt.ActionReference;
 import org.openide.awt.ActionReferences;
 import org.openide.awt.ActionRegistration;
+import org.openide.util.Exceptions;
 import org.openide.util.HelpCtx;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
 import org.openide.util.actions.CallableSystemAction;
 import org.openide.windows.WindowManager;
 import org.sleuthkit.autopsy.casemodule.Case;
+import org.sleuthkit.autopsy.casemodule.CaseActionException;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
+import org.sleuthkit.autopsy.coordinationservice.CoordinationService;
 import org.sleuthkit.autopsy.core.Installer;
 import org.sleuthkit.autopsy.core.RuntimeProperties;
 import org.sleuthkit.autopsy.coreutils.Logger;
@@ -99,13 +105,23 @@ public final class OpenAction extends CallableSystemAction {
 
     @Override
     public boolean isEnabled() {
-        Case openCase;
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            Case openCase;
+            try {
+                openCase = Case.getCurrentCaseThrows();
+            } catch (NoCurrentCaseException ex) {
+                return false;
+            }
+            return openCase.hasData();
+        });
+        boolean hasData = false;
         try {
-            openCase = Case.getCurrentCaseThrows();
-        } catch (NoCurrentCaseException ex) {
-            return false;
+            hasData = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-        return super.isEnabled() && Installer.isJavaFxInited() && openCase.hasData();
+        return super.isEnabled() && Installer.isJavaFxInited() && hasData;
     }
 
     /**
@@ -143,9 +159,8 @@ public final class OpenAction extends CallableSystemAction {
         + "If your computer is analyzing a data source, then you will get real-time Image Gallery updates as files are analyzed (hashed, EXIF, etc.). This is the same behavior as a single-user case.\n\n"
         + "If another computer in your multi-user cluster is analyzing a data source, you will get updates about files on that data source only when you launch Image Gallery, which will cause the local database to be rebuilt based on results from other nodes.",
         "OpenAction.multiUserDialog.checkBox.text=Don't show this message again.",
-        "OpenAction.noControllerDialog.header=Cannot open Image Gallery",        
-        "OpenAction.noControllerDialog.text=An initialization error ocurred.\nPlease see the log for details.",
-    })
+        "OpenAction.noControllerDialog.header=Cannot open Image Gallery",
+        "OpenAction.noControllerDialog.text=An initialization error ocurred.\nPlease see the log for details.",})
     public void performAction() {
         //check case
         final Case currentCase;
@@ -170,7 +185,7 @@ public final class OpenAction extends CallableSystemAction {
                 errorDIalog.getDialogPane().setContent(new VBox(10, errorLabel));
                 GuiUtils.setDialogIcons(errorDIalog);
                 errorDIalog.showAndWait();
-                logger.log(Level.SEVERE, "No Image Gallery controller for the current case");  
+                logger.log(Level.SEVERE, "No Image Gallery controller for the current case");
                 return;
             }
 
@@ -295,7 +310,7 @@ public final class OpenAction extends CallableSystemAction {
     }
 
     @Messages({"OpenAction.openTopComponent.error.message=An error occurred while attempting to open Image Gallery.",
-               "OpenAction.openTopComponent.error.title=Failed to open Image Gallery"})
+        "OpenAction.openTopComponent.error.title=Failed to open Image Gallery"})
     private void openTopComponent() {
         SwingUtilities.invokeLater(() -> {
             try {

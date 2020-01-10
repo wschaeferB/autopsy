@@ -31,6 +31,7 @@ import java.util.logging.Level;
 import javax.swing.Action;
 import org.apache.commons.lang3.tuple.Pair;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -141,48 +142,56 @@ public class ImageNode extends AbstractContentNode<Image> {
         "ImageNode.createSheet.deviceId.desc=Device ID of the image"})
     protected Sheet createSheet() {
         Sheet sheet = super.createSheet();
-        Sheet.Set sheetSet = sheet.get(Sheet.PROPERTIES);
-        if (sheetSet == null) {
-            sheetSet = Sheet.createPropertiesSet();
-            sheet.put(sheetSet);
-        }
-
-        sheetSet.put(new NodeProperty<>(NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.name"),
-                NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.displayName"),
-                NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.desc"),
-                getDisplayName()));
-
-        sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_type_name(),
-                Bundle.ImageNode_createSheet_type_displayName(),
-                Bundle.ImageNode_createSheet_type_desc(),
-                Bundle.ImageNode_createSheet_type_text()));
-
-        sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_size_name(),
-                Bundle.ImageNode_createSheet_size_displayName(),
-                Bundle.ImageNode_createSheet_size_desc(),
-                this.content.getSize()));
-        sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_sectorSize_name(),
-                Bundle.ImageNode_createSheet_sectorSize_displayName(),
-                Bundle.ImageNode_createSheet_sectorSize_desc(),
-                this.content.getSsize()));
-
-        sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_timezone_name(),
-                Bundle.ImageNode_createSheet_timezone_displayName(),
-                Bundle.ImageNode_createSheet_timezone_desc(),
-                this.content.getTimeZone()));
-
-        try (CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT device_id FROM data_source_info WHERE obj_id = " + this.content.getId());) {
-            ResultSet deviceIdSet = query.getResultSet();
-            if (deviceIdSet.next()) {
-                sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_deviceId_name(),
-                        Bundle.ImageNode_createSheet_deviceId_displayName(),
-                        Bundle.ImageNode_createSheet_deviceId_desc(),
-                        deviceIdSet.getString("device_id")));
+        //WJS-TODO 5934
+        Thread thread5934 = new Thread(() -> {
+            Sheet.Set sheetSet = sheet.get(Sheet.PROPERTIES);
+            if (sheetSet == null) {
+                sheetSet = Sheet.createPropertiesSet();
+                sheet.put(sheetSet);
             }
-        } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "Failed to get device id for the following image: " + this.content.getId(), ex);
-        }
 
+            sheetSet.put(new NodeProperty<>(NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.name"),
+                    NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.displayName"),
+                    NbBundle.getMessage(this.getClass(), "ImageNode.createSheet.name.desc"),
+                    getDisplayName()));
+
+            sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_type_name(),
+                    Bundle.ImageNode_createSheet_type_displayName(),
+                    Bundle.ImageNode_createSheet_type_desc(),
+                    Bundle.ImageNode_createSheet_type_text()));
+
+            sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_size_name(),
+                    Bundle.ImageNode_createSheet_size_displayName(),
+                    Bundle.ImageNode_createSheet_size_desc(),
+                    this.content.getSize()));
+            sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_sectorSize_name(),
+                    Bundle.ImageNode_createSheet_sectorSize_displayName(),
+                    Bundle.ImageNode_createSheet_sectorSize_desc(),
+                    this.content.getSsize()));
+
+            sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_timezone_name(),
+                    Bundle.ImageNode_createSheet_timezone_displayName(),
+                    Bundle.ImageNode_createSheet_timezone_desc(),
+                    this.content.getTimeZone()));
+            try (CaseDbQuery query = Case.getCurrentCaseThrows().getSleuthkitCase().executeQuery("SELECT device_id FROM data_source_info WHERE obj_id = " + this.content.getId());) {
+                ResultSet deviceIdSet = query.getResultSet();
+                if (deviceIdSet.next()) {
+                    sheetSet.put(new NodeProperty<>(Bundle.ImageNode_createSheet_deviceId_name(),
+                            Bundle.ImageNode_createSheet_deviceId_displayName(),
+                            Bundle.ImageNode_createSheet_deviceId_desc(),
+                            deviceIdSet.getString("device_id")));
+                }
+            } catch (SQLException | TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "Failed to get device id for the following image: " + this.content.getId(), ex);
+            }
+        });
+
+        try {
+            thread5934.start();
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
+        }
         return sheet;
     }
 

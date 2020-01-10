@@ -72,6 +72,7 @@ import org.openide.nodes.NodeEvent;
 import org.openide.nodes.NodeListener;
 import org.openide.nodes.NodeMemberEvent;
 import org.openide.nodes.NodeReorderEvent;
+import org.openide.util.Exceptions;
 import org.openide.util.ImageUtilities;
 import org.openide.util.NbBundle;
 import org.openide.util.NbPreferences;
@@ -151,7 +152,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
      * OutlineView to the actions global context.
      *
      * @param explorerManager The explorer manager of the ancestor top
-     * component.
+     *                        component.
      */
     public DataResultViewerTable(ExplorerManager explorerManager) {
         this(explorerManager, Bundle.DataResultViewerTable_title());
@@ -164,8 +165,8 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
      * in the OutlineView to the actions global context.
      *
      * @param explorerManager The explorer manager of the ancestor top
-     * component.
-     * @param title The title.
+     *                        component.
+     * @param title           The title.
      */
     public DataResultViewerTable(ExplorerManager explorerManager, String title) {
         super(explorerManager);
@@ -181,7 +182,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
         initializePagingSupport();
 
         /*
-         * Disable the CSV export button for the common properties results 
+         * Disable the CSV export button for the common properties results
          */
         if (this instanceof org.sleuthkit.autopsy.commonpropertiessearch.CommonAttributesSearchResultsViewerTable) {
             exportCSVButton.setEnabled(false);
@@ -367,15 +368,30 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
              * node creation, if it is enabled. It also likely leads to many
              * case database round trips.
              */
-            if (rootNode != null && rootNode.getChildren().getNodesCount() > 0) {
-                this.getExplorerManager().setRootContext(this.rootNode);
-                setupTable();
-            } else {
-                Node emptyNode = new AbstractNode(Children.LEAF);
-                this.getExplorerManager().setRootContext(emptyNode);
-                outline.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
-                outlineViewListener.listenToVisibilityChanges(false);
-                outlineView.setPropertyColumns();
+            //WJS-TODO 5934
+            Thread thread5934 = new Thread(() -> {
+                if (rootNode != null && rootNode.getChildren().getNodesCount() > 0) {
+                    this.getExplorerManager().setRootContext(this.rootNode);
+                    //WJS-TODO 5934
+                    SwingUtilities.invokeLater(() -> {
+                        setupTable();
+                    });
+                } else {
+                    Node emptyNode = new AbstractNode(Children.LEAF);
+                    this.getExplorerManager().setRootContext(emptyNode);
+                    outline.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+                    outlineViewListener.listenToVisibilityChanges(false);
+                    //WJS-TODO 5934
+                    SwingUtilities.invokeLater(() -> {
+                        outlineView.setPropertyColumns();
+                    });
+                }
+            });
+            try {
+                thread5934.start();
+                thread5934.join();
+            } catch (InterruptedException ex) {
+                Exceptions.printStackTrace(ex);
             }
         } finally {
             this.setCursor(null);
@@ -434,7 +450,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
         }
 
         setColumnWidths();
-        
+
         /*
          * Load column sorting information from preferences file and apply it to
          * columns.
@@ -516,7 +532,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
     protected void setColumnWidths() {
         if (rootNode.getChildren().getNodesCount() != 0) {
             final Graphics graphics = outlineView.getGraphics();
-            
+
             if (graphics != null) {
                 // Current width of the outlineView
                 double outlineViewWidth = outlineView.getSize().getWidth();
@@ -526,10 +542,10 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
 
                 int margin = 4;
                 int padding = 8;
-                
+
                 int totalColumnWidth = 0;
-                int cntMaxSizeColumns =0;
-                
+                int cntMaxSizeColumns = 0;
+
                 // Calulate the width for each column keeping track of the number
                 // of columns that were set to columnwidthLimit.
                 for (int column = 0; column < outline.getModel().getColumnCount(); column++) {
@@ -552,40 +568,40 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
 
                     columnWidth = Math.min(columnWidth, columnWidthLimit);
                     columnWidths.add(columnWidth);
-                    
+
                     totalColumnWidth += columnWidth;
-                    
-                    if( columnWidth == columnWidthLimit) {
+
+                    if (columnWidth == columnWidthLimit) {
                         cntMaxSizeColumns++;
                     }
                 }
-                
+
                 // Figure out how much extra, if any can be given to the columns
                 // so that the table is as wide as outlineViewWidth. If cntMaxSizeColumns
                 // is greater than 0 divide the extra space between the columns 
                 // that could use more space.  Otherwise divide evenly amoung 
                 // all columns.
                 int extraWidth = 0;
-                
+
                 if (totalColumnWidth < outlineViewWidth) {
-                    if  (cntMaxSizeColumns > 0) {
-                        extraWidth = (int) ((outlineViewWidth - totalColumnWidth)/cntMaxSizeColumns);
+                    if (cntMaxSizeColumns > 0) {
+                        extraWidth = (int) ((outlineViewWidth - totalColumnWidth) / cntMaxSizeColumns);
                     } else {
-                        extraWidth = (int) ((outlineViewWidth - totalColumnWidth)/columnWidths.size());
+                        extraWidth = (int) ((outlineViewWidth - totalColumnWidth) / columnWidths.size());
                     }
                 }
-                
-                for(int column = 0; column < columnWidths.size(); column++) {
+
+                for (int column = 0; column < columnWidths.size(); column++) {
                     int columnWidth = columnWidths.get(column);
-                    
-                    if(cntMaxSizeColumns > 0) {
-                        if(columnWidth >= ((column == 0) ? 350 : 300)) {
+
+                    if (cntMaxSizeColumns > 0) {
+                        if (columnWidth >= ((column == 0) ? 350 : 300)) {
                             columnWidth += extraWidth;
                         }
                     } else {
                         columnWidth += extraWidth;
                     }
-                    
+
                     outline.getColumnModel().getColumn(column).setPreferredWidth(columnWidth);
                 }
             }
@@ -747,7 +763,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
      * order.
      *
      * @return a List<Node.Property<?>> of the properties in the persisted
-     * order.
+     *         order.
      */
     private synchronized List<Node.Property<?>> loadColumnOrder() {
 
@@ -782,9 +798,10 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
         }
 
         /*
-        NOTE: it is possible to have "discontinuities" in the keys (i.e. column numbers)
-        of the map. This happens when some of the columns had a previous setting, and 
-        other columns did not. We need to make the keys 0-indexed and continuous.
+         * NOTE: it is possible to have "discontinuities" in the keys (i.e.
+         * column numbers) of the map. This happens when some of the columns had
+         * a previous setting, and other columns did not. We need to make the
+         * keys 0-indexed and continuous.
          */
         compactPropertiesMap();
 
@@ -1189,7 +1206,7 @@ public class DataResultViewerTable extends AbstractDataResultViewer {
          *
          * @param b
          */
-        private void listenToVisibilityChanges(boolean b) {
+        void listenToVisibilityChanges(boolean b) {
             this.listenToVisibilitEvents = b;
         }
     }

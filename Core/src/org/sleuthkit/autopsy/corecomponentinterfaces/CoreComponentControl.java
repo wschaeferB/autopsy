@@ -20,6 +20,7 @@ package org.sleuthkit.autopsy.corecomponentinterfaces;
 
 import java.util.Collection;
 import java.util.logging.Level;
+import javax.swing.SwingUtilities;
 import org.openide.util.Lookup;
 import org.openide.util.NbBundle;
 import org.openide.windows.Mode;
@@ -49,31 +50,34 @@ final public class CoreComponentControl {
      * ({@link DataExplorer}, {@link DataResult}, and {@link DataContent})
      */
     public static void openCoreWindows() {
-        // TODO: there has to be a better way to do this.
+        //WJS-TODO 5934
+        SwingUtilities.invokeLater(() -> {
+            // TODO: there has to be a better way to do this.
 
-        // find the data explorer top components
-        Collection<? extends DataExplorer> dataExplorers = Lookup.getDefault().lookupAll(DataExplorer.class);
-        for (DataExplorer de : dataExplorers) {
-            TopComponent explorerWin = de.getTopComponent();
-            Mode explorerMode = WindowManager.getDefault().findMode("explorer"); //NON-NLS
-            if (explorerMode == null) {
-                logger.log(Level.WARNING, "Could not find explorer mode and dock explorer window"); //NON-NLS
-            } else {
-                explorerMode.dockInto(explorerWin); // redock into the explorer mode
+            // find the data explorer top components
+            Collection<? extends DataExplorer> dataExplorers = Lookup.getDefault().lookupAll(DataExplorer.class);
+            for (DataExplorer de : dataExplorers) {
+                TopComponent explorerWin = de.getTopComponent();
+                Mode explorerMode = WindowManager.getDefault().findMode("explorer"); //NON-NLS
+                if (explorerMode == null) {
+                    logger.log(Level.WARNING, "Could not find explorer mode and dock explorer window"); //NON-NLS
+                } else {
+                    explorerMode.dockInto(explorerWin); // redock into the explorer mode
+                }
+                explorerWin.open(); // open that top component
             }
-            explorerWin.open(); // open that top component
-        }
 
-        // find the data content top component
-        TopComponent contentWin = DataContentTopComponent.findInstance();
-        Mode outputMode = WindowManager.getDefault().findMode("output"); //NON-NLS
-        if (outputMode == null) {
-            logger.log(Level.WARNING, "Could not find output mode and dock content window"); //NON-NLS
-        } else {
-            outputMode.dockInto(contentWin); // redock into the output mode
-        }
+            // find the data content top component
+            TopComponent contentWin = DataContentTopComponent.findInstance();
+            Mode outputMode = WindowManager.getDefault().findMode("output"); //NON-NLS
+            if (outputMode == null) {
+                logger.log(Level.WARNING, "Could not find output mode and dock content window"); //NON-NLS
+            } else {
+                outputMode.dockInto(contentWin); // redock into the output mode
+            }
 
-        contentWin.open(); // open that top component
+            contentWin.open(); // open that top component
+        });
     }
 
     /**
@@ -88,21 +92,21 @@ final public class CoreComponentControl {
         TopComponent directoryTree = null;
         TopComponent favorites = null;
         final WindowManager windowManager = WindowManager.getDefault();
-        
+
         // Set the UI selections to null before closing the top components.
         // Otherwise it may experience errors trying to load data for the closed case.
         for (Mode mode : windowManager.getModes()) {
             for (TopComponent tc : windowManager.getOpenedTopComponents(mode)) {
-                if(tc instanceof DataContent) {
+                if (tc instanceof DataContent) {
                     ((DataContent) tc).setNode(null);
-                } else if(tc instanceof DataResult) {
+                } else if (tc instanceof DataResult) {
                     ((DataResult) tc).setNode(null);
                 }
             }
         }
-        
+
         for (Mode mode : windowManager.getModes()) {
-            
+
             for (TopComponent tc : windowManager.getOpenedTopComponents(mode)) {
                 String tcName = tc.getName();
 
@@ -119,7 +123,7 @@ final public class CoreComponentControl {
                 }
             }
         }
-        
+
         if (directoryTree != null) {
             directoryTree.close();
         }

@@ -61,6 +61,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonArray;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import org.openide.util.Exceptions;
 
 /**
  * Instances of this class display the BlackboardArtifacts associated with the
@@ -131,7 +134,7 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
 
             }
 
-            @Override  
+            @Override
             public void columnMarginChanged(ChangeEvent e) {
                 updateRowHeights(); //When the user changes column width we may need to resize row height
             }
@@ -159,12 +162,12 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
                 Component comp = resultsTable.prepareRenderer(
                         resultsTable.getCellRenderer(row, valueColIndex), row, valueColIndex);
                 final int rowHeight;
-             if (comp instanceof JTextArea) {
+                if (comp instanceof JTextArea) {
                     final JTextArea tc = (JTextArea) comp;
                     final View rootView = tc.getUI().getRootView(tc);
                     java.awt.Insets i = tc.getInsets();
                     rootView.setSize(resultsTable.getColumnModel().getColumn(valueColIndex)
-                            .getWidth() - (i.left + i.right +CELL_RIGHT_MARGIN), //current width minus borders
+                            .getWidth() - (i.left + i.right + CELL_RIGHT_MARGIN), //current width minus borders
                             Integer.MAX_VALUE);
                     rowHeight = (int) rootView.getPreferredSpan(View.Y_AXIS);
                 } else {
@@ -468,17 +471,26 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
         if (node == null) {
             return false;
         }
-
-        for (Content content : node.getLookup().lookupAll(Content.class)) {
-            if ( (content != null)  && (!(content instanceof BlackboardArtifact)) ){
-                try {
-                    return content.getAllArtifactsCount() > 0;
-                } catch (TskException ex) {
-                    logger.log(Level.SEVERE, "Couldn't get count of BlackboardArtifacts for content", ex); //NON-NLS
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            for (Content content : node.getLookup().lookupAll(Content.class)) {
+                if ((content != null) && (!(content instanceof BlackboardArtifact))) {
+                    try {
+                        return content.getAllArtifactsCount() > 0;
+                    } catch (TskException ex) {
+                        logger.log(Level.SEVERE, "Couldn't get count of BlackboardArtifacts for content", ex); //NON-NLS
+                    }
                 }
             }
+            return false;
+        });
+        boolean hasData = false;
+        try {
+            hasData = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-        return false;
+        return hasData;
     }
 
     @Override
@@ -557,12 +569,12 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
                                 value = dateFormatter.format(new java.util.Date(epoch * 1000));
                             }
                             break;
-                        case JSON: 
+                        case JSON:
                             // Get the attribute's JSON value and convert to indented multiline display string
                             String jsonVal = attr.getValueString();
                             JsonParser parser = new JsonParser();
                             JsonObject json = parser.parse(jsonVal).getAsJsonObject();
-                           
+
                             value = toJsonDisplayString(json, "");
                             break;
                     }
@@ -601,43 +613,43 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
         String getArtifactDisplayName() {
             return artifactDisplayName;
         }
-        
+
         private static final String INDENT_RIGHT = "    ";
         private static final String NEW_LINE = "\n";
-            
+
         /**
          * Recursively converts a JSON element into an indented multi-line
          * display string.
          *
-         * @param element JSON element to convert
+         * @param element     JSON element to convert
          * @param startIndent Starting indentation for the element.
          *
          * @return A multi-line display string.
          */
         private String toJsonDisplayString(JsonElement element, String startIndent) {
-           
+
             StringBuilder sb = new StringBuilder("");
             JsonObject obj = element.getAsJsonObject();
 
             for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-                appendJsonElementToString(entry.getKey(), entry.getValue(), startIndent, sb );
+                appendJsonElementToString(entry.getKey(), entry.getValue(), startIndent, sb);
             }
 
             String returnString = sb.toString();
-            if (startIndent.length() == 0 &&  returnString.startsWith(NEW_LINE)) {
+            if (startIndent.length() == 0 && returnString.startsWith(NEW_LINE)) {
                 returnString = returnString.substring(NEW_LINE.length());
             }
             return returnString;
         }
-        
-       
+
         /**
-         * Converts the given JSON element into string and appends to the given string builder.
-         * 
+         * Converts the given JSON element into string and appends to the given
+         * string builder.
+         *
          * @param jsonKey
          * @param jsonElement
          * @param startIndent Starting indentation for the element.
-         * @param sb String builder to append to.
+         * @param sb          String builder to append to.
          */
         private void appendJsonElementToString(String jsonKey, JsonElement jsonElement, String startIndent, StringBuilder sb) {
             if (jsonElement.isJsonArray()) {
@@ -785,7 +797,7 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
             }
             Content underlyingContent = null;
             for (Content content : contents) {
-                if ( (content != null)  && (!(content instanceof BlackboardArtifact)) ) {
+                if ((content != null) && (!(content instanceof BlackboardArtifact))) {
                     // Get all of the blackboard artifacts associated with the content. These are what this
                     // viewer displays.
                     try {
@@ -798,7 +810,7 @@ public class DataContentViewerArtifact extends javax.swing.JPanel implements Dat
                     }
                 }
             }
- 
+
             if (isCancelled()) {
                 return null;
             }

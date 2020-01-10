@@ -60,6 +60,7 @@ import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
+import org.openide.util.Exceptions;
 import org.openide.util.Lookup;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
@@ -1081,30 +1082,39 @@ public class Case {
                             NbBundle.getMessage(Case.class, "Case.open.msgDlg.updated.title"),
                             JOptionPane.INFORMATION_MESSAGE);
                 }
+                //WJS-TODO 5934
+                Thread imagePathsThread = new Thread(() -> {
+                    /*
+                     * Look for the files for the data sources listed in the
+                     * case database and give the user the opportunity to locate
+                     * any that are missing.
+                     */
+                    Map<Long, String> imgPaths = getImagePaths(caseDb);
+                    for (Map.Entry<Long, String> entry : imgPaths.entrySet()) {
+                        long obj_id = entry.getKey();
+                        String path = entry.getValue();
+                        boolean fileExists = (new File(path).isFile() || DriveUtils.driveExists(path));
+                        if (!fileExists) {
+                            int response = JOptionPane.showConfirmDialog(
+                                    mainFrame,
+                                    NbBundle.getMessage(Case.class, "Case.checkImgExist.confDlg.doesntExist.msg", path),
+                                    NbBundle.getMessage(Case.class, "Case.checkImgExist.confDlg.doesntExist.title"),
+                                    JOptionPane.YES_NO_OPTION);
+                            if (response == JOptionPane.YES_OPTION) {
+                                MissingImageDialog.makeDialog(obj_id, caseDb);
+                            } else {
+                                logger.log(Level.SEVERE, "User proceeding with missing image files"); //NON-NLS
 
-                /*
-                 * Look for the files for the data sources listed in the case
-                 * database and give the user the opportunity to locate any that
-                 * are missing.
-                 */
-                Map<Long, String> imgPaths = getImagePaths(caseDb);
-                for (Map.Entry<Long, String> entry : imgPaths.entrySet()) {
-                    long obj_id = entry.getKey();
-                    String path = entry.getValue();
-                    boolean fileExists = (new File(path).isFile() || DriveUtils.driveExists(path));
-                    if (!fileExists) {
-                        int response = JOptionPane.showConfirmDialog(
-                                mainFrame,
-                                NbBundle.getMessage(Case.class, "Case.checkImgExist.confDlg.doesntExist.msg", path),
-                                NbBundle.getMessage(Case.class, "Case.checkImgExist.confDlg.doesntExist.title"),
-                                JOptionPane.YES_NO_OPTION);
-                        if (response == JOptionPane.YES_OPTION) {
-                            MissingImageDialog.makeDialog(obj_id, caseDb);
-                        } else {
-                            logger.log(Level.SEVERE, "User proceeding with missing image files"); //NON-NLS
-
+                            }
                         }
                     }
+                });
+
+                try {
+                    imagePathsThread.start();
+                    imagePathsThread.join();
+                } catch (InterruptedException ex) {
+                    Exceptions.printStackTrace(ex);
                 }
 
                 /*
@@ -1136,10 +1146,19 @@ public class Case {
                  * opened via the DirectoryTreeTopComponent 'propertyChange()'
                  * method on a DATA_SOURCE_ADDED event.
                  */
-                if (newCurrentCase.hasData()) {
-                    CoreComponentControl.openCoreWindows();
-                }
+                //WJS-TODO 5934
+                Thread hasDataThread = new Thread(() -> {
+                    if (newCurrentCase.hasData()) {
+                        CoreComponentControl.openCoreWindows();
+                    }
+                });
 
+                try {
+                    hasDataThread.start();
+                    hasDataThread.join();
+                } catch (InterruptedException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
                 /*
                  * Reset the main window title to:
                  *
@@ -1856,6 +1875,7 @@ public class Case {
                     releaseCaseLock();
                     throw ex;
                 }
+                releaseCaseLock();
             }
             return null;
         });
@@ -2359,8 +2379,7 @@ public class Case {
          */
         progressIndicator.progress(Bundle.Case_progressMessage_openingApplicationServiceResources());
 
-        for (AutopsyService service : Lookup.getDefault().lookupAll(AutopsyService.class
-        )) {
+        for (AutopsyService service : Lookup.getDefault().lookupAll(AutopsyService.class)) {
             /*
              * Create a progress indicator for the task and start the task. If
              * running with a GUI, the progress indicator will be a dialog box
