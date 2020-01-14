@@ -26,12 +26,17 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JOptionPane;
 import javax.xml.bind.DatatypeConverter;
+import org.openide.util.Exceptions;
 import org.openide.windows.WindowManager;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.datamodel.AbstractFile;
+import org.sleuthkit.datamodel.BlackboardArtifact;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
@@ -62,10 +67,14 @@ class FileType implements Serializable {
     /**
      * Creates a representation of a file type characterized by file signatures.
      *
-     * @param mimeType   The mime type to associate with this file type.
-     * @param signatures The signatures that characterize this file type.
-     * @param createInterestingFileHit  Create interesting file hit for file type?
-     * @param setName    Name of the interesting file set in which to create hit.
+     * @param mimeType                 The mime type to associate with this file
+     *                                 type.
+     * @param signatures               The signatures that characterize this
+     *                                 file type.
+     * @param createInterestingFileHit Create interesting file hit for file
+     *                                 type?
+     * @param setName                  Name of the interesting file set in which
+     *                                 to create hit.
      *
      * @throws IllegalArgumentException If an empty list of signatures is given.
      */
@@ -102,7 +111,7 @@ class FileType implements Serializable {
      * Should an interesting files hit be created for this file type?
      *
      * @return true if an interesting files hit should be created, otherwise
-     * false
+     *         false
      */
     boolean shouldCreateInterestingFileHit() {
         return createInterestingFileHit;
@@ -328,29 +337,40 @@ class FileType implements Serializable {
          * @return True or false.
          */
         boolean containedIn(final AbstractFile file) {
-            if (offset >= file.getSize()) {
-                return false; // File is too small, offset lies outside file.
-            }
-            long actualOffset = offset;
-            if (!isRelativeToStart) {
-                actualOffset = file.getSize() - 1 - offset;
-            }
-            if (file.getSize() < (actualOffset + signatureBytes.length)) {
-                return false; /// too small, can't contain this signature
-            }
+
+            //WJS-TODO 5934
+            Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+                if (offset >= file.getSize()) {
+                    return false; // File is too small, offset lies outside file.
+                }
+                long actualOffset = offset;
+                if (!isRelativeToStart) {
+                    actualOffset = file.getSize() - 1 - offset;
+                }
+                if (file.getSize() < (actualOffset + signatureBytes.length)) {
+                    return false; /// too small, can't contain this signature
+                }
+                try {
+                    byte[] buffer = new byte[signatureBytes.length];
+                    int bytesRead = file.read(buffer, actualOffset, signatureBytes.length);
+                    return ((bytesRead == signatureBytes.length) && (Arrays.equals(buffer, signatureBytes)));
+                } catch (TskCoreException ex) {
+                    /**
+                     * This exception is swallowed rather than propagated
+                     * because files in images are not always consistent with
+                     * their file system meta data making for read errors.
+                     */
+                    Signature.logger.log(Level.WARNING, "Error reading from file with objId = " + file.getId(), ex); //NON-NLS
+                    return false;
+                }
+            });
+            Boolean contained = null;
             try {
-                byte[] buffer = new byte[signatureBytes.length];
-                int bytesRead = file.read(buffer, actualOffset, signatureBytes.length);
-                return ((bytesRead == signatureBytes.length) && (Arrays.equals(buffer, signatureBytes)));
-            } catch (TskCoreException ex) {
-                /**
-                 * This exception is swallowed rather than propagated because
-                 * files in images are not always consistent with their file
-                 * system meta data making for read errors.
-                 */
-                Signature.logger.log(Level.WARNING, "Error reading from file with objId = " + file.getId(), ex); //NON-NLS
-                return false;
+                contained = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
+            return contained;
         }
 
         @Override

@@ -80,31 +80,41 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
         }
 
         StringBuilder html = new StringBuilder();
+        //WJS-TODO 5934
+        final BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class);
+        Future<Content> future = Executors.newSingleThreadExecutor().submit(() -> {
 
-        BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class);
-        Content sourceFile = null;
+            Content sourceFile = null;
 
-        try {
-            if (artifact != null) {
-                /*
-                 * Get the source content based on the artifact to ensure we
-                 * display the correct data instead of whatever was in the node.
-                 */
-                sourceFile = artifact.getSleuthkitCase().getAbstractFileById(artifact.getObjectID());
-            } else {
-                /*
-                 * No artifact is present, so get the content based on what's
-                 * present in the node. In this case, the selected item IS the
-                 * source file.
-                 */
-                sourceFile = node.getLookup().lookup(AbstractFile.class);
+            try {
+                if (artifact != null) {
+                    /*
+                     * Get the source content based on the artifact to ensure we
+                     * display the correct data instead of whatever was in the
+                     * node.
+                     */
+                    sourceFile = artifact.getSleuthkitCase().getAbstractFileById(artifact.getObjectID());
+                } else {
+                    /*
+                     * No artifact is present, so get the content based on
+                     * what's present in the node. In this case, the selected
+                     * item IS the source file.
+                     */
+                    sourceFile = node.getLookup().lookup(AbstractFile.class);
+                }
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, String.format(
+                        "Exception while trying to retrieve a Content instance from the BlackboardArtifact '%s' (id=%d).",
+                        artifact.getDisplayName(), artifact.getArtifactID()), ex);
             }
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, String.format(
-                    "Exception while trying to retrieve a Content instance from the BlackboardArtifact '%s' (id=%d).",
-                    artifact.getDisplayName(), artifact.getArtifactID()), ex);
+            return null;
+        });
+        Content sourceFile = null;
+        try {
+            sourceFile = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
         if (artifact != null) {
             populateTagData(html, artifact, sourceFile);
         } else {
@@ -126,12 +136,28 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
      * @param html    The HTML text to update.
      * @param content Selected content.
      */
-    private void populateTagData(StringBuilder html, Content content) {
+    private void populateTagData(StringBuilder html, final Content content) {
         try {
-            SleuthkitCase tskCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+            final SleuthkitCase tskCase = Case.getCurrentCaseThrows().getSleuthkitCase();
 
             startSection(html, "Selected Item");
-            List<ContentTag> fileTagsList = tskCase.getContentTagsByContent(content);
+            //WJS-TODO 5934
+            Future<List<ContentTag>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                if (content != null) {
+                    try {
+                        return tskCase.getContentTagsByContent(content);
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.SEVERE, "Exception while getting tags from the case database.", ex); //NON-NLS
+                    }
+                }
+                return new ArrayList<>();
+            });
+            List<ContentTag> fileTagsList = new ArrayList<>();
+            try {
+                fileTagsList.addAll(future.get());
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+            }
             if (fileTagsList.isEmpty()) {
                 addMessage(html, "There are no tags for the selected content.");
             } else {
@@ -142,8 +168,6 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
             endSection(html);
         } catch (NoCurrentCaseException ex) {
             logger.log(Level.SEVERE, "Exception while getting open case.", ex); // NON-NLS
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Exception while getting tags from the case database.", ex); //NON-NLS
         }
     }
 
@@ -155,12 +179,23 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
      * @param artifact   A selected artifact.
      * @param sourceFile The source content of the selected artifact.
      */
-    private void populateTagData(StringBuilder html, BlackboardArtifact artifact, Content sourceFile) {
+    private void populateTagData(StringBuilder html, final BlackboardArtifact artifact, Content sourceFile) {
         try {
             SleuthkitCase tskCase = Case.getCurrentCaseThrows().getSleuthkitCase();
 
             startSection(html, "Selected Item");
-            List<BlackboardArtifactTag> artifactTagsList = tskCase.getBlackboardArtifactTagsByArtifact(artifact);
+
+            //WJS-TODO 5934
+            Future<List<BlackboardArtifactTag>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                return tskCase.getBlackboardArtifactTagsByArtifact(artifact);
+
+            });
+            List<BlackboardArtifactTag> artifactTagsList = new ArrayList<>();
+            try {
+                artifactTagsList.addAll(future.get());
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+            }
             if (artifactTagsList.isEmpty()) {
                 addMessage(html, "There are no tags for the selected artifact.");
             } else {
@@ -172,7 +207,21 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
 
             if (sourceFile != null) {
                 startSection(html, "Source File");
-                List<ContentTag> fileTagsList = tskCase.getContentTagsByContent(sourceFile);
+                //WJS-TODO 5934
+                Future<List<ContentTag>> future2 = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        List<ContentTag> fileTagsList = tskCase.getContentTagsByContent(sourceFile);
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.SEVERE, "Exception while getting tags from the case database.", ex); //NON-NLS
+                    }
+                    return new ArrayList<>();
+                });
+                List<ContentTag> fileTagsList = new ArrayList<>();
+                try {
+                    fileTagsList.addAll(future2.get());
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
                 if (fileTagsList.isEmpty()) {
                     addMessage(html, "There are no tags for the source content.");
                 } else {
@@ -184,8 +233,6 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
             }
         } catch (NoCurrentCaseException ex) {
             logger.log(Level.SEVERE, "Exception while getting open case.", ex); // NON-NLS
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Exception while getting tags from the case database.", ex); //NON-NLS
         }
     }
 
@@ -435,15 +482,18 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
     public boolean isSupported(Node node) {
         //WJS-TODO 5934
         Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
-            BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class);
+            BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class
+            );
 
             try {
                 if (artifact != null) {
                     if (artifact.getSleuthkitCase().getAbstractFileById(artifact.getObjectID()) != null) {
                         return true;
+
                     }
                 } else {
-                    if (node.getLookup().lookup(AbstractFile.class) != null) {
+                    if (node.getLookup().lookup(AbstractFile.class
+                    ) != null) {
                         return true;
                     }
                 }

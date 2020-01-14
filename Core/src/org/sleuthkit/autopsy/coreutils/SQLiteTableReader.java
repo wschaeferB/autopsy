@@ -29,9 +29,13 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.logging.Level;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.autopsy.casemodule.services.FileManager;
@@ -42,14 +46,15 @@ import org.sleuthkit.datamodel.SleuthkitCase;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
- * Reads through SQLite tables row by row. Functions performed on the 
- * data must be declared up front to the Builder. For example:
- * 
- * tableReader = new SQLiteTableReader.Builder(file).forAllColumnNames(System.out::println);
+ * Reads through SQLite tables row by row. Functions performed on the data must
+ * be declared up front to the Builder. For example:
+ *
+ * tableReader = new
+ * SQLiteTableReader.Builder(file).forAllColumnNames(System.out::println);
  * tableReader.read("Sample Table X");
- * 
- * By declaring the functions up front, the SQLiteTableReader instance can stream the 
- * table contents in the most memory efficient manner. 
+ *
+ * By declaring the functions up front, the SQLiteTableReader instance can
+ * stream the table contents in the most memory efficient manner.
  */
 public class SQLiteTableReader implements AutoCloseable {
 
@@ -67,9 +72,10 @@ public class SQLiteTableReader implements AutoCloseable {
         private Consumer<Double> forAllFloatValuesConsumer;
         private Consumer<byte[]> forAllBlobValuesConsumer;
         private Consumer<Object> forAllTableValuesConsumer;
-        
+
         static <T> Consumer<T> doNothing() {
-            return NOOP -> {};
+            return NOOP -> {
+            };
         }
 
         /**
@@ -194,7 +200,7 @@ public class SQLiteTableReader implements AutoCloseable {
 
     private final AbstractFile file;
     private final Builder builder;
-  
+
     private static final String SELECT_ALL_QUERY = "SELECT * FROM \"%s\"";
     private static final Logger logger = Logger.getLogger(SQLiteTableReader.class.getName());
 
@@ -430,11 +436,19 @@ public class SQLiteTableReader implements AutoCloseable {
         SleuthkitCase sleuthkitCase = openCase.getSleuthkitCase();
         Services services = new Services(sleuthkitCase);
         FileManager fileManager = services.getFileManager();
-
-        List<AbstractFile> metaFiles = fileManager.findFiles(
-                sqliteFile.getDataSource(), metaFileName,
-                sqliteFile.getParent().getName());
-
+        //WJS-TODO 5934
+        Future<List<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<AbstractFile> metaFiles = fileManager.findFiles(
+                    sqliteFile.getDataSource(), metaFileName,
+                    sqliteFile.getParent().getName());
+            return metaFiles;
+        });
+        List<AbstractFile> metaFiles = null;
+        try {
+            metaFiles = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
         if (metaFiles != null) {
             for (AbstractFile metaFile : metaFiles) {
                 copyFileToTempDirectory(metaFile, sqliteFile.getId());
@@ -446,8 +460,8 @@ public class SQLiteTableReader implements AutoCloseable {
      * Copies the file contents into a unique path in the current case temp
      * directory.
      *
-     * @param file AbstractFile from the data source
-     * @param fileId   The input files id value
+     * @param file   AbstractFile from the data source
+     * @param fileId The input files id value
      *
      * @return The path of the file on disk
      *

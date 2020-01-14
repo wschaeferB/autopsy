@@ -22,17 +22,22 @@ import java.awt.Cursor;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import org.apache.commons.lang3.StringUtils;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.coreutils.StringExtract;
 import org.sleuthkit.autopsy.coreutils.StringExtract.StringExtractResult;
 import org.sleuthkit.autopsy.coreutils.StringExtract.StringExtractUnicodeTable.SCRIPT;
 import org.sleuthkit.autopsy.datamodel.StringContent;
 import org.sleuthkit.datamodel.Content;
+import org.sleuthkit.datamodel.TagName;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
@@ -344,7 +349,7 @@ public class StringsContentPanel extends javax.swing.JPanel {
      * @param dataSource the content that want to be shown
      * @param offset     the starting offset
      */
-    void setDataView(Content dataSource, long offset) {
+    void setDataView(final Content dataSource, final long offset) {
         if (dataSource == null) {
             return;
         }
@@ -355,10 +360,19 @@ public class StringsContentPanel extends javax.swing.JPanel {
         // set the data on the bottom and show it
 
         if (dataSource.getSize() > 0) {
+            //WJS-TODO 5934
+            Future<Integer> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    return dataSource.read(data, offset, PAGE_LENGTH); // read the data
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, "Error while trying to show the String content.", ex); //NON-NLS
+                    return 0;
+                }
+            });
             try {
-                bytesRead = dataSource.read(data, offset, PAGE_LENGTH); // read the data
-            } catch (TskCoreException ex) {
-                logger.log(Level.WARNING, "Error while trying to show the String content.", ex); //NON-NLS
+                bytesRead = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
         String text;

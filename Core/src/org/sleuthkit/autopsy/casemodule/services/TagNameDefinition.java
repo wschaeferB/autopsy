@@ -24,8 +24,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.annotation.concurrent.Immutable;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -181,11 +185,21 @@ final class TagNameDefinition implements Comparable<TagNameDefinition> {
     }
 
     TagName saveToCase(SleuthkitCase caseDb) {
+        //WJS-TODO 5934
+        Future<TagName> future = Executors.newSingleThreadExecutor().submit(() -> {
+            TagName tagName = null;
+            try {
+                tagName = caseDb.addOrUpdateTagName(displayName, description, color, knownStatus);
+            } catch (TskCoreException ex) {
+                LOGGER.log(Level.SEVERE, "Error updating non-file object ", ex);
+            }
+            return tagName;
+        });
         TagName tagName = null;
         try {
-            tagName = caseDb.addOrUpdateTagName(displayName, description, color, knownStatus);
-        } catch (TskCoreException ex) {
-            LOGGER.log(Level.SEVERE, "Error updating non-file object ", ex);
+            tagName = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
         return tagName;
     }

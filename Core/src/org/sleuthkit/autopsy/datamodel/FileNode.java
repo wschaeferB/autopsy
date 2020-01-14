@@ -23,9 +23,13 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.Action;
 import org.apache.commons.lang3.StringUtils;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.Utilities;
 import org.sleuthkit.autopsy.actions.AddContentTagAction;
@@ -42,6 +46,7 @@ import org.sleuthkit.autopsy.modules.embeddedfileextractor.ExtractArchiveWithPas
 import org.sleuthkit.autopsy.timeline.actions.ViewFileInTimelineAction;
 import org.sleuthkit.datamodel.AbstractFile;
 import org.sleuthkit.datamodel.BlackboardArtifact;
+import org.sleuthkit.datamodel.TagName;
 import org.sleuthkit.datamodel.TskCoreException;
 import org.sleuthkit.datamodel.TskData.TSK_DB_FILES_TYPE_ENUM;
 import org.sleuthkit.datamodel.TskData.TSK_FS_NAME_FLAG_ENUM;
@@ -162,8 +167,18 @@ public class FileNode extends AbstractFsContentNode<AbstractFile> {
         }
 
         actionsList.add(new NewWindowViewAction(Bundle.FileNode_getActions_viewInNewWin_text(), this));
-        final Collection<AbstractFile> selectedFilesList
-                = new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+        Collection<AbstractFile> selectedFilesList = new HashSet<>();
+        //WJS-TODO 5934
+        Future<Collection<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+        });
+
+        try {
+            selectedFilesList = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+
         if (selectedFilesList.size() == 1) {
             actionsList.add(new ExternalViewerAction(
                     Bundle.FileNode_getActions_openInExtViewer_text(), this));
@@ -183,12 +198,25 @@ public class FileNode extends AbstractFsContentNode<AbstractFile> {
         }
         actionsList.addAll(ContextMenuExtensionPoint.getActions());
         if (FileTypeExtensions.getArchiveExtensions().contains("." + this.content.getNameExtension().toLowerCase())) {
+            //WJS-TODO 5934
+            Future<Boolean> future2 = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+
+                    return this.content.getArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_ENCRYPTION_DETECTED).size() > 0;
+
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, "Unable to add unzip with password action to context menus", ex);
+                    return false;
+                }
+            });
+            boolean addAction;
             try {
-                if (this.content.getArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_ENCRYPTION_DETECTED).size() > 0) {
+                addAction = future2.get();
+                if (addAction) {
                     actionsList.add(new ExtractArchiveWithPasswordAction(this.getContent()));
                 }
-            } catch (TskCoreException ex) {
-                logger.log(Level.WARNING, "Unable to add unzip with password action to context menus", ex);
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
         return actionsList.toArray(new Action[actionsList.size()]);
@@ -203,7 +231,7 @@ public class FileNode extends AbstractFsContentNode<AbstractFile> {
      * @return An object determied by the type parameter of the Visitor.
      */
     @Override
-    public <T> T accept(ContentNodeVisitor<T> visitor) {
+    public <T> T accept(ContentNodeVisitor< T> visitor) {
         return visitor.visit(this);
     }
 
@@ -216,7 +244,7 @@ public class FileNode extends AbstractFsContentNode<AbstractFile> {
      * @return An object determied by the type parameter of the Visitor.
      */
     @Override
-    public <T> T accept(DisplayableItemNodeVisitor<T> visitor) {
+    public <T> T accept(DisplayableItemNodeVisitor< T> visitor) {
         return visitor.visit(this);
     }
 

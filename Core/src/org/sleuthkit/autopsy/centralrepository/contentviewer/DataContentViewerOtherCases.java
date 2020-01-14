@@ -40,6 +40,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import javax.swing.JFileChooser;
@@ -55,6 +58,7 @@ import javax.swing.table.TableRowSorter;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.openide.util.lookup.ServiceProvider;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -412,42 +416,48 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      * @return The associated AbstractFile, or null
      */
     private AbstractFile getAbstractFileFromNode(Node node) {
-        BlackboardArtifactTag nodeBbArtifactTag = node.getLookup().lookup(BlackboardArtifactTag.class
-        );
-        ContentTag nodeContentTag = node.getLookup().lookup(ContentTag.class
-        );
-        BlackboardArtifact nodeBbArtifact = node.getLookup().lookup(BlackboardArtifact.class
-        );
-        AbstractFile nodeAbstractFile = node.getLookup().lookup(AbstractFile.class
-        );
+        //WJS-TODO 5934
+        Future<AbstractFile> future = Executors.newSingleThreadExecutor().submit(() -> {
+            BlackboardArtifactTag nodeBbArtifactTag = node.getLookup().lookup(BlackboardArtifactTag.class
+            );
+            ContentTag nodeContentTag = node.getLookup().lookup(ContentTag.class
+            );
+            BlackboardArtifact nodeBbArtifact = node.getLookup().lookup(BlackboardArtifact.class
+            );
+            AbstractFile nodeAbstractFile = node.getLookup().lookup(AbstractFile.class
+            );
 
-        if (nodeBbArtifactTag != null) {
-            Content content = nodeBbArtifactTag.getContent();
-            if (content instanceof AbstractFile) {
-                return (AbstractFile) content;
+            if (nodeBbArtifactTag != null) {
+                Content content = nodeBbArtifactTag.getContent();
+                if (content instanceof AbstractFile) {
+                    nodeAbstractFile = (AbstractFile) content;
+                }
+            } else if (nodeContentTag != null) {
+                Content content = nodeContentTag.getContent();
+                if (content instanceof AbstractFile) {
+                    nodeAbstractFile = (AbstractFile) content;
+                }
+            } else if (nodeBbArtifact != null) {
+                Content content;
+                try {
+                    content = nodeBbArtifact.getSleuthkitCase().getContentById(nodeBbArtifact.getObjectID());
+                    if (content instanceof AbstractFile) {
+                        nodeAbstractFile = (AbstractFile) content;
+                    }
+                } catch (TskCoreException ex) {
+                    LOGGER.log(Level.SEVERE, "Error retrieving blackboard artifact", ex); // NON-NLS
+                    nodeAbstractFile = null;
+                }
             }
-        } else if (nodeContentTag != null) {
-            Content content = nodeContentTag.getContent();
-            if (content instanceof AbstractFile) {
-                return (AbstractFile) content;
-            }
-        } else if (nodeBbArtifact != null) {
-            Content content;
-            try {
-                content = nodeBbArtifact.getSleuthkitCase().getContentById(nodeBbArtifact.getObjectID());
-            } catch (TskCoreException ex) {
-                LOGGER.log(Level.SEVERE, "Error retrieving blackboard artifact", ex); // NON-NLS
-                return null;
-            }
-
-            if (content instanceof AbstractFile) {
-                return (AbstractFile) content;
-            }
-        } else if (nodeAbstractFile != null) {
             return nodeAbstractFile;
+        });
+        AbstractFile abFile = null;
+        try {
+            abFile = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
-        return null;
+        return abFile;
     }
 
     /**
@@ -633,17 +643,28 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      * @throws EamDbException
      */
     private List<AbstractFile> getCaseDbMatches(CorrelationAttributeInstance corAttr, Case openCase) throws NoCurrentCaseException, TskCoreException, EamDbException {
-        String md5 = corAttr.getCorrelationValue();
-        SleuthkitCase tsk = openCase.getSleuthkitCase();
-        List<AbstractFile> matches = tsk.findAllFilesWhere(String.format("md5 = '%s'", new Object[]{md5}));
+        //WJS-TODO 5934
+        Future<List<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            String md5 = corAttr.getCorrelationValue();
+            SleuthkitCase tsk = openCase.getSleuthkitCase();
+            List<AbstractFile> matches = tsk.findAllFilesWhere(String.format("md5 = '%s'", new Object[]{md5}));
 
-        List<AbstractFile> caseDbArtifactInstances = new ArrayList<>();
-        for (AbstractFile fileMatch : matches) {
-            if (this.file.equals(fileMatch)) {
-                continue; // If this is the file the user clicked on
+            List<AbstractFile> caseDbArtifactInstances = new ArrayList<>();
+            for (AbstractFile fileMatch : matches) {
+                if (this.file.equals(fileMatch)) {
+                    continue; // If this is the file the user clicked on
+                }
+                caseDbArtifactInstances.add(fileMatch);
             }
-            caseDbArtifactInstances.add(fileMatch);
+            return caseDbArtifactInstances;
+        });
+        List<AbstractFile> caseDbArtifactInstances = new ArrayList<>();
+        try {
+            caseDbArtifactInstances.addAll(future.get());
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
+
         return caseDbArtifactInstances;
 
     }
@@ -734,11 +755,28 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
     private void populateTable(Node node) {
         try {
             if (this.file != null) {
-                Content dataSource = this.file.getDataSource();
+                final Content dataSource = this.file.getDataSource();
                 dataSourceName = dataSource.getName();
-                deviceId = Case.getCurrentCaseThrows().getSleuthkitCase().getDataSource(dataSource.getId()).getDeviceId();
+                //WJS-TODO 5934
+                Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        return Case.getCurrentCaseThrows().getSleuthkitCase().getDataSource(dataSource.getId()).getDeviceId();
+                    } catch (TskException | NoCurrentCaseException ex) {
+                        return null;
+                    }
+                });
+                String id;
+                try {
+                    id = future.get();
+                    if (!id.isEmpty()) {
+                        deviceId = id;
+                    }
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
             }
-        } catch (TskException | NoCurrentCaseException ex) {
+
+        } catch (TskException ex) {
             // do nothing. 
             // @@@ Review this behavior
         }

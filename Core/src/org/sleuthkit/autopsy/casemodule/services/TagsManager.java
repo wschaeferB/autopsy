@@ -27,7 +27,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -52,7 +56,7 @@ public class TagsManager implements Closeable {
 
     private static final Logger LOGGER = Logger.getLogger(TagsManager.class.getName());
     private final SleuthkitCase caseDb;
-    
+
     static {
         //Create the contentviewer tags table (beta) if the current case does not 
         //have the table present
@@ -64,7 +68,7 @@ public class TagsManager implements Closeable {
                     if (caseDb.tableExists(ContentViewerTagManager.TABLE_NAME)) {
                         return;
                     }
-                    
+
                     if (currentCase.getSleuthkitCase().getDatabaseType().equals(DbType.SQLITE)) {
                         caseDb.createTable(ContentViewerTagManager.TABLE_NAME, ContentViewerTagManager.TABLE_SCHEMA_SQLITE);
                     } else if (currentCase.getSleuthkitCase().getDatabaseType().equals(DbType.POSTGRESQL)) {
@@ -242,7 +246,8 @@ public class TagsManager implements Closeable {
     /**
      * Selects all of the rows from the tag_names table in the case database for
      * which there is at least one matching row in the content_tags or
-     * blackboard_artifact_tags tables, for the given data source object id and user.
+     * blackboard_artifact_tags tables, for the given data source object id and
+     * user.
      *
      * @param dsObjId  data source object id
      * @param userName - the user name that you want to get tags for
@@ -295,12 +300,29 @@ public class TagsManager implements Closeable {
          * names of tags added to a multi-user case by other users appear in the
          * map.
          */
-        Map<String, TagName> tagNames = new HashMap<>();
+        final Map<String, TagName> tagNames = new HashMap<>();
         Set<TagNameDefinition> customTypes = TagNameDefinition.getTagNameDefinitions();
         for (TagNameDefinition tagType : customTypes) {
             tagNames.put(tagType.getDisplayName(), null);
         }
-        for (TagName tagName : caseDb.getAllTagNames()) {
+        //WJS-TODO 5934
+        Future<List<TagName>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return caseDb.getAllTagNames();
+            } catch (TskCoreException ex) {
+                return null;
+            }
+        });
+        List<TagName> tagNameList = null;
+        try {
+            tagNameList = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        if (tagNameList == null) {
+            throw new TskCoreException("Unable to get Tag Names from Case database");
+        }
+        for (TagName tagName : tagNameList) {
             tagNames.put(tagName.getDisplayName(), tagName);
         }
         return new HashMap<>(tagNames);
@@ -633,7 +655,17 @@ public class TagsManager implements Closeable {
      *                          case database.
      */
     public List<ContentTag> getContentTagsByContent(Content content) throws TskCoreException {
-        return caseDb.getContentTagsByContent(content);
+        //WJS-TODO 5934
+        Future<List<ContentTag>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return caseDb.getContentTagsByContent(content);
+        });
+        try {
+            return future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        throw new TskCoreException("Error getting content tags data for content (obj_id = " + content.getId() + ")");
+
     }
 
     /**
