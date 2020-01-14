@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.TimeZone;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -30,6 +32,7 @@ import java.util.prefs.PreferenceChangeEvent;
 import java.util.prefs.PreferenceChangeListener;
 import javax.swing.SwingWorker;
 import org.netbeans.api.progress.ProgressHandle;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.core.UserPreferences;
 import org.sleuthkit.autopsy.coreutils.Logger;
@@ -125,7 +128,17 @@ public final class ContentUtils {
      * @return
      */
     public static String getStringTime(long epochSeconds, Content content) {
-        return getStringTime(epochSeconds, getTimeZone(content));
+        //WJS-TODO 5934
+        Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return getStringTime(epochSeconds, getTimeZone(content));
+        });
+        String stringTime = "";
+        try {
+            stringTime = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        return stringTime;
     }
 
     /**

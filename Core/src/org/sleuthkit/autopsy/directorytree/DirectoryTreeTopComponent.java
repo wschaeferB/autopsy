@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.prefs.PreferenceChangeEvent;
 import java.util.prefs.PreferenceChangeListener;
@@ -855,16 +857,26 @@ public final class DirectoryTreeTopComponent extends TopComponent implements Dat
                     } else {
                         dataResult.setNode(new TableFilterNode(drfn, true));
                     }
-                    String displayName = "";
-                    Content content = originNode.getLookup().lookup(Content.class);
-                    if (content != null) {
-                        try {
-                            displayName = content.getUniquePath();
-                        } catch (TskCoreException ex) {
-                            LOGGER.log(Level.SEVERE, "Exception while calling Content.getUniquePath() for node: {0}", originNode); //NON-NLS
+
+                    //WJS-TODO 5934
+                    Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+                        Content content = originNode.getLookup().lookup(Content.class);
+                        if (content != null) {
+                            try {
+                                return content.getUniquePath();
+                            } catch (TskCoreException ex) {
+                                LOGGER.log(Level.SEVERE, "Exception while calling Content.getUniquePath() for node: {0}", originNode); //NON-NLS
+                            }
+                        } else if (originNode.getLookup().lookup(String.class) != null) {
+                            return originNode.getLookup().lookup(String.class);
                         }
-                    } else if (originNode.getLookup().lookup(String.class) != null) {
-                        displayName = originNode.getLookup().lookup(String.class);
+                        return "";
+                    });
+                    String displayName = "";
+                    try {
+                        displayName = future.get();
+                    } catch (InterruptedException | ExecutionException ex) {
+                        Exceptions.printStackTrace(ex);
                     }
                     dataResult.setPath(displayName);
                 }

@@ -21,10 +21,14 @@ package org.sleuthkit.autopsy.directorytree;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.Action;
 import org.openide.nodes.FilterNode;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.lookup.Lookups;
 import org.openide.util.lookup.ProxyLookup;
@@ -114,46 +118,55 @@ class DirectoryTreeFilterNode extends FilterNode {
      * @return The number of visible children.
      */
     private int getVisibleChildCount(AbstractFile file) throws TskCoreException {
-        List<Content> childList = file.getChildren();
 
-        int numVisibleChildren = childList.size();
-        boolean purgeKnownFiles = UserPreferences.hideKnownFilesInDataSourcesTree();
-        boolean purgeSlackFiles = UserPreferences.hideSlackFilesInDataSourcesTree();
+        //WJS-TODO 5934
+        Future<Integer> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<Content> childList = file.getChildren();
 
-        if (purgeKnownFiles || purgeSlackFiles) {
-            // Purge known and/or slack files from the file count
-            for (int i = 0; i < childList.size(); i++) {
-                Content child = childList.get(i);
-                if (child instanceof AbstractFile) {
-                    AbstractFile childFile = (AbstractFile) child;
-                    if ((purgeKnownFiles && childFile.getKnown() == TskData.FileKnown.KNOWN)
-                            || (purgeSlackFiles && childFile.getType() == TskData.TSK_DB_FILES_TYPE_ENUM.SLACK)) {
-                        numVisibleChildren--;
-                    }
-                } else if (child instanceof BlackboardArtifact) {
-                    
-                    if (FilterNodeUtils.showMessagesInDatasourceTree()) {
-                        // In older versions of Autopsy,  attachments were children of email/message artifacts
-                        // and hence email/messages with attachments are shown in the directory tree.
-                        BlackboardArtifact bba = (BlackboardArtifact) child;
-                        // Only message type artifacts are displayed in the tree
-                        if ((bba.getArtifactTypeID() != ARTIFACT_TYPE.TSK_EMAIL_MSG.getTypeID())
-                                && (bba.getArtifactTypeID() != ARTIFACT_TYPE.TSK_MESSAGE.getTypeID())) {
+            int numVisibleChildren = childList.size();
+            boolean purgeKnownFiles = UserPreferences.hideKnownFilesInDataSourcesTree();
+            boolean purgeSlackFiles = UserPreferences.hideSlackFilesInDataSourcesTree();
+
+            if (purgeKnownFiles || purgeSlackFiles) {
+                // Purge known and/or slack files from the file count
+                for (int i = 0; i < childList.size(); i++) {
+                    Content child = childList.get(i);
+                    if (child instanceof AbstractFile) {
+                        AbstractFile childFile = (AbstractFile) child;
+                        if ((purgeKnownFiles && childFile.getKnown() == TskData.FileKnown.KNOWN)
+                                || (purgeSlackFiles && childFile.getType() == TskData.TSK_DB_FILES_TYPE_ENUM.SLACK)) {
+                            numVisibleChildren--;
+                        }
+                    } else if (child instanceof BlackboardArtifact) {
+
+                        if (FilterNodeUtils.showMessagesInDatasourceTree()) {
+                            // In older versions of Autopsy,  attachments were children of email/message artifacts
+                            // and hence email/messages with attachments are shown in the directory tree.
+                            BlackboardArtifact bba = (BlackboardArtifact) child;
+                            // Only message type artifacts are displayed in the tree
+                            if ((bba.getArtifactTypeID() != ARTIFACT_TYPE.TSK_EMAIL_MSG.getTypeID())
+                                    && (bba.getArtifactTypeID() != ARTIFACT_TYPE.TSK_MESSAGE.getTypeID())) {
+                                numVisibleChildren--;
+                            }
+                        } else {
                             numVisibleChildren--;
                         }
                     }
-                    else {
-                        numVisibleChildren--;
-                    }
                 }
             }
+            return numVisibleChildren;
+        });
+        int numVisibleChildren = 0;
+        try {
+            numVisibleChildren = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
         return numVisibleChildren;
     }
 
     /**
-     * Gets the context mneu (right click menu) actions for the wrapped node.
+     * Gets the context menu (right click menu) actions for the wrapped node.
      *
      * @param context Whether to find actions for context meaning or for the
      *                node itself.
@@ -163,7 +176,7 @@ class DirectoryTreeFilterNode extends FilterNode {
     @Override
     public Action[] getActions(boolean context) {
         List<Action> actions = new ArrayList<>();
-        
+
         final Content content = this.getLookup().lookup(Content.class);
         if (content != null) {
             actions.addAll(Arrays.asList(super.getActions(true)));

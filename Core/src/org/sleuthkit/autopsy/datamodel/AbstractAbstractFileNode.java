@@ -26,12 +26,16 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.WeakListeners;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -545,12 +549,22 @@ public abstract class AbstractAbstractFileNode<T extends AbstractFile> extends A
     }
 
     static String getContentPath(AbstractFile file) {
+        //WJS-TODO 5934
+        Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return file.getUniquePath();
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Except while calling Content.getUniquePath() on " + file.getName(), ex); //NON-NLS
+                return "";            //NON-NLS
+            }
+        });
+        String contentPath = "";
         try {
-            return file.getUniquePath();
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Except while calling Content.getUniquePath() on " + file.getName(), ex); //NON-NLS
-            return "";            //NON-NLS
+            contentPath = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
+        return contentPath;
     }
 
     static String getContentDisplayName(AbstractFile file) {

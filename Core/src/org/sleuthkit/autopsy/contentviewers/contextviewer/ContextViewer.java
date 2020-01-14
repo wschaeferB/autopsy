@@ -23,9 +23,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.apache.commons.lang.StringUtils;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.lookup.ServiceProvider;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -197,23 +201,37 @@ public final class ContextViewer extends javax.swing.JPanel implements DataConte
     public boolean isSupported(Node node) {
 
         // check if the node has an abstract file and the file has any context defining artifacts.
+        boolean supported = false;
         if (node.getLookup().lookup(AbstractFile.class) != null) {
             AbstractFile abstractFile = node.getLookup().lookup(AbstractFile.class);
             for (BlackboardArtifact.ARTIFACT_TYPE artifactType : SOURCE_CONTEXT_ARTIFACTS) {
-                List<BlackboardArtifact> artifactsList;
-                try {
-                    artifactsList = abstractFile.getArtifacts(artifactType);
-                    if (!artifactsList.isEmpty()) {
-                        return true;
+                //WJS-TODO 5934
+                Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+                    List<BlackboardArtifact> artifactsList;
+                    try {
+                        artifactsList = abstractFile.getArtifacts(artifactType);
+                        if (!artifactsList.isEmpty()) {
+                            return true;
+                        }
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.SEVERE, String.format("Exception while looking up context artifacts for file %s", abstractFile), ex); //NON-NLS
                     }
-                } catch (TskCoreException ex) {
-                    logger.log(Level.SEVERE, String.format("Exception while looking up context artifacts for file %s", abstractFile), ex); //NON-NLS
+                    return false;
+                });
+
+                try {
+                    supported = future.get();
+                    if (supported) {
+                        break;
+                    }
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
                 }
             }
 
         }
 
-        return false;
+        return supported;
     }
 
     @Override

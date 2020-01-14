@@ -196,6 +196,7 @@ class DirectoryTreeFilterChildren extends FilterNode.Children {
             if (!hasChildren) {
                 return true;
             }
+            
             List<Content> derivedChildren = node.getContentChildren();
             //child of a file, must be a (derived) file too
             for (Content childContent : derivedChildren) {

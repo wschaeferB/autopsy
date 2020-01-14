@@ -28,6 +28,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.text.JTextComponent;
 import org.apache.commons.lang3.StringUtils;
@@ -37,6 +40,7 @@ import org.openide.explorer.ExplorerManager;
 import org.openide.nodes.AbstractNode;
 import org.openide.nodes.Children;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.lookup.ServiceProvider;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -511,43 +515,54 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
      * the file, that artifact is returned.
      *
      * @param node Node to check.
+     *
      * @return Blackboard artifact for the node, null if there isn't any.
      */
     private BlackboardArtifact getNodeArtifact(Node node) {
-        BlackboardArtifact nodeArtifact = node.getLookup().lookup(BlackboardArtifact.class);
+        //WJS-TODO 5934
+        Future<BlackboardArtifact> future = Executors.newSingleThreadExecutor().submit(() -> {
+            BlackboardArtifact nodeArtifact = node.getLookup().lookup(BlackboardArtifact.class);
 
-        if (nodeArtifact == null) {
-            try {
-                SleuthkitCase tskCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-                AbstractFile file = node.getLookup().lookup(AbstractFile.class);
-                if (file != null) {
-                    List<BlackboardArtifact> artifactsList = tskCase.getBlackboardArtifacts(TSK_ASSOCIATED_OBJECT, file.getId());
+            if (nodeArtifact == null) {
+                try {
+                    SleuthkitCase tskCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                    AbstractFile file = node.getLookup().lookup(AbstractFile.class);
+                    if (file != null) {
+                        List<BlackboardArtifact> artifactsList = tskCase.getBlackboardArtifacts(TSK_ASSOCIATED_OBJECT, file.getId());
 
-                    for (BlackboardArtifact fileArtifact : artifactsList) {
-                        BlackboardAttribute associatedArtifactAttribute = fileArtifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ASSOCIATED_ARTIFACT));
-                        if (associatedArtifactAttribute != null) {
-                            BlackboardArtifact associatedArtifact = fileArtifact.getSleuthkitCase().getBlackboardArtifact(associatedArtifactAttribute.getValueLong());
-                            if (isMessageArtifact(associatedArtifact)) {
-                                nodeArtifact = associatedArtifact;
+                        for (BlackboardArtifact fileArtifact : artifactsList) {
+                            BlackboardAttribute associatedArtifactAttribute = fileArtifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ASSOCIATED_ARTIFACT));
+                            if (associatedArtifactAttribute != null) {
+                                BlackboardArtifact associatedArtifact = fileArtifact.getSleuthkitCase().getBlackboardArtifact(associatedArtifactAttribute.getValueLong());
+                                if (isMessageArtifact(associatedArtifact)) {
+                                    nodeArtifact = associatedArtifact;
+                                }
                             }
                         }
                     }
+                } catch (NoCurrentCaseException | TskCoreException ex) {
+                    LOGGER.log(Level.SEVERE, "Failed to get file for selected node.", ex); //NON-NLS
                 }
-            } catch (NoCurrentCaseException | TskCoreException ex) {
-                LOGGER.log(Level.SEVERE, "Failed to get file for selected node.", ex); //NON-NLS
             }
+            return nodeArtifact;
+        });
+        BlackboardArtifact nodeArtifact = null;
+        try {
+            nodeArtifact = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
         return nodeArtifact;
     }
-    
+
     @Override
+
     public int isPreferred(Node node) {
         // For message artifacts this is a high priority viewer, 
         // but for attachment files, this a lower priority vewer.
         if (isSupported(node)) {
             BlackboardArtifact nodeArtifact = node.getLookup().lookup(BlackboardArtifact.class);
-            if (nodeArtifact != null) { 
+            if (nodeArtifact != null) {
                 return 7;
             } else {
                 return 1;
@@ -595,34 +610,34 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
     }
 
     private void configureAttachments() throws TskCoreException {
-        
+
         final Set<Attachment> attachments;
-        
+
         //  Attachments are specified in an attribute TSK_ATTACHMENTS as JSON attribute
         BlackboardAttribute attachmentsAttr = artifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ATTACHMENTS));
-        if(attachmentsAttr != null) {
-           
+        if (attachmentsAttr != null) {
+
             attachments = new HashSet<>();
-            String jsonVal = attachmentsAttr.getValueString();	                            
+            String jsonVal = attachmentsAttr.getValueString();
             MessageAttachments msgAttachments = new Gson().fromJson(jsonVal, MessageAttachments.class);
-            
+
             Collection<FileAttachment> fileAttachments = msgAttachments.getFileAttachments();
-            for (FileAttachment fileAttachment: fileAttachments) {
+            for (FileAttachment fileAttachment : fileAttachments) {
                 attachments.add(fileAttachment);
             }
             Collection<URLAttachment> urlAttachments = msgAttachments.getUrlAttachments();
-            for (URLAttachment urlAttachment: urlAttachments) {
+            for (URLAttachment urlAttachment : urlAttachments) {
                 attachments.add(urlAttachment);
             }
         } else {    // For backward compatibility - email attachements are derived files and children of the email message artifact
-                attachments = new HashSet<>();
-                for (Content child: artifact.getChildren()) {
-                    if (child instanceof AbstractFile) {
-                        attachments.add(new FileAttachment((AbstractFile)child));
-                    }
+            attachments = new HashSet<>();
+            for (Content child : artifact.getChildren()) {
+                if (child instanceof AbstractFile) {
+                    attachments.add(new FileAttachment((AbstractFile) child));
                 }
+            }
         }
-                
+
         final int numberOfAttachments = attachments.size();
 
         msgbodyTabbedPane.setEnabledAt(ATTM_TAB_INDEX, numberOfAttachments > 0);
@@ -710,9 +725,8 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
         return doc.html();
     }
 
-    
     /**
-     * Creates child nodes for message attachments. 
+     * Creates child nodes for message attachments.
      */
     private static class AttachmentsChildren extends Children.Keys<Attachment> {
 

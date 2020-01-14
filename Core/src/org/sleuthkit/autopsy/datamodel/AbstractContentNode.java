@@ -22,12 +22,15 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.apache.commons.lang3.tuple.Pair;
 import org.openide.nodes.Children;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 
 import org.openide.util.lookup.Lookups;
 import org.openide.util.Lookup;
@@ -233,14 +236,23 @@ public abstract class AbstractContentNode<T extends Content> extends ContentNode
      * @return list of content children content.
      */
     public List<Content> getContentChildren() {
-        List<Content> children = null;
+        //WJS-TODO 5934
+        Future<List<Content>> future = Executors.newSingleThreadExecutor().submit(() -> {
 
-        if (content != null) {
-            try {
-                children = content.getChildren();
-            } catch (TskCoreException ex) {
-                logger.log(Level.SEVERE, "Error getting children, for content: " + content, ex); //NON-NLS
+            if (content != null) {
+                try {
+                    return content.getChildren();
+                } catch (TskCoreException ex) {
+                    logger.log(Level.SEVERE, "Error getting children, for content: " + content, ex); //NON-NLS
+                }
             }
+            return null;
+        });
+        List<Content> children = null;
+        try {
+            children = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
 
         return children;
@@ -254,6 +266,7 @@ public abstract class AbstractContentNode<T extends Content> extends ContentNode
      *
      * @return content children count
      */
+
     public int getContentChildrenCount() {
         int childrenCount = -1;
 

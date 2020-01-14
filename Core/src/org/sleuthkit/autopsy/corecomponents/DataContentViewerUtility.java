@@ -18,8 +18,12 @@
  */
 package org.sleuthkit.autopsy.corecomponents;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.sleuthkit.datamodel.Content;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.sleuthkit.datamodel.BlackboardArtifact;
 
 /**
@@ -39,18 +43,28 @@ public class DataContentViewerUtility {
      *
      * @return If there are multiple Content objects associated with the Node,
      *         the first Content object that is not a BlackboardArtifact object
-     *         is returned. If no Content objects other than artifacts are found,
-     *         the first BlackboardArtifact object found is returned. If no
-     *         Content objects are found, null is returned.
+     *         is returned. If no Content objects other than artifacts are
+     *         found, the first BlackboardArtifact object found is returned. If
+     *         no Content objects are found, null is returned.
      */
     public static Content getDefaultContent(Node node) {
-        Content artifact = null;
-        for (Content content : node.getLookup().lookupAll(Content.class)) {
-            if (content instanceof BlackboardArtifact && artifact == null) {
-                artifact = content;
-            } else {
-                return content;
+        //WJS-TODO 5934
+        Future<Content> future = Executors.newSingleThreadExecutor().submit(() -> {
+            Content artifact = null;
+            for (Content content : node.getLookup().lookupAll(Content.class)) {
+                if (content instanceof BlackboardArtifact && artifact == null) {
+                    artifact = content;
+                } else {
+                    return content;
+                }
             }
+            return artifact;
+        });
+        Content artifact = null;
+        try {
+            artifact = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
         return artifact;
     }

@@ -21,12 +21,16 @@ package org.sleuthkit.autopsy.contentviewers;
 import java.awt.Component;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.apache.commons.lang3.StringEscapeUtils;
 
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.lookup.ServiceProvider;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -429,25 +433,34 @@ public class AnnotationsContentViewer extends javax.swing.JPanel implements Data
 
     @Override
     public boolean isSupported(Node node) {
-        BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class);
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            BlackboardArtifact artifact = node.getLookup().lookup(BlackboardArtifact.class);
 
-        try {
-            if (artifact != null) {
-                if (artifact.getSleuthkitCase().getAbstractFileById(artifact.getObjectID()) != null) {
-                    return true;
+            try {
+                if (artifact != null) {
+                    if (artifact.getSleuthkitCase().getAbstractFileById(artifact.getObjectID()) != null) {
+                        return true;
+                    }
+                } else {
+                    if (node.getLookup().lookup(AbstractFile.class) != null) {
+                        return true;
+                    }
                 }
-            } else {
-                if (node.getLookup().lookup(AbstractFile.class) != null) {
-                    return true;
-                }
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, String.format(
+                        "Exception while trying to retrieve a Content instance from the BlackboardArtifact '%s' (id=%d).",
+                        artifact.getDisplayName(), artifact.getArtifactID()), ex);
             }
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, String.format(
-                    "Exception while trying to retrieve a Content instance from the BlackboardArtifact '%s' (id=%d).",
-                    artifact.getDisplayName(), artifact.getArtifactID()), ex);
+            return false;
+        });
+        boolean supported = false;
+        try {
+            supported = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
-        return false;
+        return supported;
     }
 
     @Override
