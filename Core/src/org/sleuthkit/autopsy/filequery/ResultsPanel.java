@@ -28,6 +28,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
@@ -38,6 +41,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.event.ListSelectionListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.actions.AddContentTagAction;
 import org.sleuthkit.autopsy.actions.DeleteFileContentTagAction;
@@ -702,15 +706,24 @@ public class ResultsPanel extends javax.swing.JPanel {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            String name = "";
-            if (value instanceof AbstractFile) {
-                AbstractFile file = (AbstractFile) value;
-                try {
-                    name = file.getUniquePath();
-                } catch (TskCoreException ingored) {
-                    name = file.getParentPath() + "/" + file.getName();
+            //WJS-TODO 5934
+            Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+                String name = "";
+                if (value instanceof AbstractFile) {
+                    AbstractFile file = (AbstractFile) value;
+                    try {
+                        name = file.getUniquePath();
+                    } catch (TskCoreException ingored) {
+                        name = file.getParentPath() + "/" + file.getName();
+                    }
                 }
-
+                return name;
+            });
+            String name = "";
+            try {
+                name = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
             setText(name);
             return this;

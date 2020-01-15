@@ -32,13 +32,17 @@ import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.AbstractAction;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SwingWorker;
 import org.netbeans.api.progress.ProgressHandle;
+import org.openide.nodes.Node;
 import org.openide.util.Cancellable;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -74,7 +78,7 @@ final class ExtractUnallocAction extends AbstractAction {
     /**
      * Create an instance of ExtractUnallocAction with a volume.
      *
-     * @param title The title
+     * @param title  The title
      * @param volume The volume set for extraction.
      */
     public ExtractUnallocAction(String title, Volume volume) {
@@ -92,9 +96,10 @@ final class ExtractUnallocAction extends AbstractAction {
 
     /**
      * Create an instance of ExtractUnallocAction with an image.
-     * 
+     *
      * @param title The title.
      * @param image The image set for extraction.
+     *
      * @throws NoCurrentCaseException If no case is open.
      */
     public ExtractUnallocAction(String title, Image image) throws NoCurrentCaseException {
@@ -168,9 +173,9 @@ final class ExtractUnallocAction extends AbstractAction {
             int returnValue = fileChooser.showSaveDialog((Component) event.getSource());
             if (returnValue == JFileChooser.APPROVE_OPTION) {
                 String destination = fileChooser.getSelectedFile().getPath();
-                
+
                 updateExportDirectory(destination, openCase);
-                
+
                 for (OutputFileData outputFileData : filesToExtract) {
                     outputFileData.setPath(destination);
 
@@ -233,7 +238,7 @@ final class ExtractUnallocAction extends AbstractAction {
             }
         }
     }
-    
+
     /**
      * Get the export directory path.
      *
@@ -281,17 +286,28 @@ final class ExtractUnallocAction extends AbstractAction {
      * @return A list<LayoutFile> if it didn't crash List may be empty.
      */
     private List<LayoutFile> getUnallocFiles(Content content) {
-        UnallocVisitor unallocVisitor = new UnallocVisitor();
-        try {
-            for (Content contentChild : content.getChildren()) {
-                if (contentChild instanceof AbstractContent) {
-                    return contentChild.accept(unallocVisitor);  //call on first non-artifact child added to database
+        //WJS-TODO 5934
+        Future<List<LayoutFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            UnallocVisitor unallocVisitor = new UnallocVisitor();
+            try {
+                for (Content contentChild : content.getChildren()) {
+                    if (contentChild instanceof AbstractContent) {
+                        return contentChild.accept(unallocVisitor);  //call on first non-artifact child added to database
+                    }
                 }
+            } catch (TskCoreException tce) {
+                logger.log(Level.WARNING, "Couldn't get a list of Unallocated Files, failed at sending out the visitor ", tce); //NON-NLS
             }
-        } catch (TskCoreException tce) {
-            logger.log(Level.WARNING, "Couldn't get a list of Unallocated Files, failed at sending out the visitor ", tce); //NON-NLS
+            return Collections.emptyList();
+        });
+        List<LayoutFile> unallocFileList;
+        try {
+            unallocFileList = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            unallocFileList = Collections.emptyList();
+            Exceptions.printStackTrace(ex);
         }
-        return Collections.emptyList();
+        return unallocFileList;
     }
 
     synchronized static private void addVolumeInProgress(String volumeOutputFileName) throws TskCoreException {
@@ -482,16 +498,27 @@ final class ExtractUnallocAction extends AbstractAction {
      * @return True if there are Volume Systems present
      */
     private boolean hasVolumeSystem(Image img) {
-        try {
-            for (Content c : img.getChildren()) {
-                if (c instanceof VolumeSystem) {
-                    return true;
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                for (Content c : img.getChildren()) {
+                    if (c instanceof VolumeSystem) {
+                        return true;
+                    }
                 }
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Unable to determine if image has a volume system, extraction may be incomplete", ex); //NON-NLS
             }
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Unable to determine if image has a volume system, extraction may be incomplete", ex); //NON-NLS
+            return false;
+        });
+        boolean returnValue = false;
+        try {
+            returnValue = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-        return false;
+
+        return returnValue;
     }
 
     /**

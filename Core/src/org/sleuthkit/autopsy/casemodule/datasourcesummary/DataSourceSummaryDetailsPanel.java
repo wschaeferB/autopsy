@@ -21,9 +21,14 @@ package org.sleuthkit.autopsy.casemodule.datasourcesummary;
 import java.text.DecimalFormat;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
+import javax.swing.JOptionPane;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import javax.swing.table.DefaultTableModel;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.datamodel.DataSource;
 import org.sleuthkit.datamodel.Image;
@@ -68,45 +73,87 @@ class DataSourceSummaryDetailsPanel extends javax.swing.JPanel {
             String md5String = "";
             String sha1String = "";
             String sha256String = "";
-            String acquisitionDetailsString = "";
+
             String imageTypeString = "";
             String[] filePaths = new String[0];
             String osDetailString = osDetailMap.get(selectedDataSource.getId()) == null ? "" : osDetailMap.get(selectedDataSource.getId());
             String dataSourceTypeString = usageMap.get(selectedDataSource.getId()) == null ? "" : usageMap.get(selectedDataSource.getId());
+            //WJS-TODO 5934
+            Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+                String acquisitionDetailsString = "";
+                try {
+                    acquisitionDetailsString = selectedDataSource.getAcquisitionDetails();
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, "Unable to get aquisition details for selected data source", ex);
+                }
+                return acquisitionDetailsString;
+            });
+            String acquisitionDetailsString;
             try {
-                acquisitionDetailsString = selectedDataSource.getAcquisitionDetails();
-            } catch (TskCoreException ex) {
-                logger.log(Level.WARNING, "Unable to get aquisition details for selected data source", ex);
+                acquisitionDetailsString = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+                acquisitionDetailsString = "";
             }
             if (selectedDataSource instanceof Image) {
                 imageTypeString = ((Image) selectedDataSource).getType().getName();
                 filePaths = ((Image) selectedDataSource).getPaths();
                 sizeString = getSizeString(selectedDataSource.getSize());
                 sectorSizeString = getSizeString(((Image) selectedDataSource).getSsize());
-                try {
-                    //older databases may have null as the hash values
-                    md5String = ((Image) selectedDataSource).getMd5();
-                    if (md5String == null) {
-                        md5String = "";
+
+                //WJS-TODO 5934
+                Future<String> future2 = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        //older databases may have null as the hash values
+                        return ((Image) selectedDataSource).getMd5();
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.WARNING, "Unable to get MD5 for selected data source", ex);
+                        return null;
                     }
-                } catch (TskCoreException ex) {
-                    logger.log(Level.WARNING, "Unable to get MD5 for selected data source", ex);
+                });
+                try {
+                    md5String = future2.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
                 }
-                try {
-                    sha1String = ((Image) selectedDataSource).getSha1();
-                    if (sha1String == null) {
-                        sha1String = "";
-                    }
-                } catch (TskCoreException ex) {
-                    logger.log(Level.WARNING, "Unable to get SHA1 for selected data source", ex);
+                if (md5String == null) {
+                    md5String = "";
                 }
-                try {
-                    sha256String = ((Image) selectedDataSource).getSha256();
-                    if (sha256String == null) {
-                        sha256String = "";
+                //WJS-TODO 5934
+                Future<String> future3 = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        return ((Image) selectedDataSource).getSha1();
+
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.WARNING, "Unable to get SHA1 for selected data source", ex);
+                        return null;
                     }
-                } catch (TskCoreException ex) {
-                    logger.log(Level.WARNING, "Unable to get SHA256 for selected data source", ex);
+                });
+                try {
+                    sha1String = future3.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
+                if (sha1String == null) {
+                    sha1String = "";
+                }
+                //WJS-TODO 5934
+                Future<String> future4 = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        return ((Image) selectedDataSource).getSha256();
+
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.WARNING, "Unable to get SHA256 for selected data source", ex);
+                        return null;
+                    }
+                });
+                try {
+                    sha256String = future4.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
+                if (sha256String == null) {
+                    sha256String = "";
                 }
             }
             displayNameValue.setText(selectedDataSource.getName());

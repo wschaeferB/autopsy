@@ -25,6 +25,9 @@ import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import javax.swing.DefaultListCellRenderer;
@@ -34,6 +37,7 @@ import javax.swing.JList;
 import javax.swing.SwingUtilities;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.centralrepository.datamodel.EamDb;
@@ -602,17 +606,30 @@ final class FileSearchPanel extends javax.swing.JPanel implements ActionListener
      */
     private void setUpDataSourceFilter() {
         int count = 0;
-        try {
-            DefaultListModel<DataSourceItem> dsListModel = (DefaultListModel<DataSourceItem>) dataSourceList.getModel();
-            dsListModel.removeAllElements();
-            for (DataSource ds : Case.getCurrentCase().getSleuthkitCase().getDataSources()) {
-                dsListModel.add(count, new DataSourceItem(ds));
+        Thread thread5934 = new Thread(() -> {
+            try {
+                DefaultListModel<DataSourceItem> dsListModel = (DefaultListModel<DataSourceItem>) dataSourceList.getModel();
+                dsListModel.removeAllElements();
+
+                for (DataSource ds : Case.getCurrentCase().getSleuthkitCase().getDataSources()) {
+                    dsListModel.add(count, new DataSourceItem(ds));
+                }
+
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Error loading data sources", ex);
+                dataSourceCheckbox.setEnabled(false);
+                dataSourceList.setEnabled(false);
             }
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Error loading data sources", ex);
+        });
+        thread5934.start();
+        try {
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
             dataSourceCheckbox.setEnabled(false);
             dataSourceList.setEnabled(false);
         }
+
         addListeners(dataSourceCheckbox, dataSourceList);
     }
 
@@ -735,21 +752,32 @@ final class FileSearchPanel extends javax.swing.JPanel implements ActionListener
      * Initialize the tags filter.
      */
     private void setUpTagsFilter() {
-        int count = 0;
-        try {
-            DefaultListModel<TagName> tagsListModel = (DefaultListModel<TagName>) tagsList.getModel();
-            tagsListModel.removeAllElements();
-            List<TagName> tagNames = Case.getCurrentCase().getSleuthkitCase().getTagNamesInUse();
-            for (TagName name : tagNames) {
-                tagsListModel.add(count, name);
-                count++;
+        Thread thread5934 = new Thread(() -> {
+            int count = 0;
+            try {
+                DefaultListModel<TagName> tagsListModel = (DefaultListModel<TagName>) tagsList.getModel();
+                tagsListModel.removeAllElements();
+                List<TagName> tagNames = Case.getCurrentCase().getSleuthkitCase().getTagNamesInUse();
+                for (TagName name : tagNames) {
+                    tagsListModel.add(count, name);
+                    count++;
+                }
+                tagsList.setCellRenderer(new TagsListCellRenderer());
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Error loading tag names", ex);
+                tagsCheckbox.setEnabled(false);
+                tagsList.setEnabled(false);
             }
-            tagsList.setCellRenderer(new TagsListCellRenderer());
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Error loading tag names", ex);
+        });
+        thread5934.start();
+        try {
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
             tagsCheckbox.setEnabled(false);
             tagsList.setEnabled(false);
         }
+
         addListeners(tagsCheckbox, tagsList);
     }
 
@@ -824,19 +852,31 @@ final class FileSearchPanel extends javax.swing.JPanel implements ActionListener
      * @throws TskCoreException
      */
     private List<String> getSetNames(BlackboardArtifact.ARTIFACT_TYPE artifactType, BlackboardAttribute.ATTRIBUTE_TYPE setNameAttribute) throws TskCoreException {
-        List<BlackboardArtifact> arts = Case.getCurrentCase().getSleuthkitCase().getBlackboardArtifacts(artifactType);
-        List<String> setNames = new ArrayList<>();
-        for (BlackboardArtifact art : arts) {
-            for (BlackboardAttribute attr : art.getAttributes()) {
-                if (attr.getAttributeType().getTypeID() == setNameAttribute.getTypeID()) {
-                    String setName = attr.getValueString();
-                    if (!setNames.contains(setName)) {
-                        setNames.add(setName);
+        //WJS-TODO 5934
+        Future<List<String>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<BlackboardArtifact> arts = Case.getCurrentCase().getSleuthkitCase().getBlackboardArtifacts(artifactType);
+            List<String> setNames = new ArrayList<>();
+            for (BlackboardArtifact art : arts) {
+                for (BlackboardAttribute attr : art.getAttributes()) {
+                    if (attr.getAttributeType().getTypeID() == setNameAttribute.getTypeID()) {
+                        String setName = attr.getValueString();
+                        if (!setNames.contains(setName)) {
+                            setNames.add(setName);
+                        }
                     }
                 }
             }
+
+            Collections.sort(setNames);
+            return setNames;
+        });
+        List<String> setNames;
+        try {
+            setNames = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            setNames = new ArrayList<>();
         }
-        Collections.sort(setNames);
         return setNames;
     }
 

@@ -25,6 +25,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
@@ -34,6 +37,7 @@ import javax.swing.JDialog;
 import javax.swing.JOptionPane;
 import javax.swing.KeyStroke;
 import javax.swing.table.AbstractTableModel;
+import org.openide.util.Exceptions;
 import org.openide.util.ImageUtilities;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
@@ -328,9 +332,9 @@ public class GetTagNameDialog extends JDialog {
         "GetTagNameDialog.tagDescriptionIllegalCharacters.message=Tag descriptions may not contain commas (,) or semicolons (;)",
         "GetTagNameDialog.tagDescriptionIllegalCharacters.title=Invalid character in tag description"})
     private void okButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_okButtonActionPerformed
-        String tagDisplayName = tagNameField.getText();
-        String userTagDescription = descriptionTextArea.getText();
-        TskData.FileKnown status = notableCheckbox.isSelected() ? TskData.FileKnown.BAD : TskData.FileKnown.UNKNOWN;
+        final String tagDisplayName = tagNameField.getText();
+        final String userTagDescription = descriptionTextArea.getText();
+        final TskData.FileKnown status = notableCheckbox.isSelected() ? TskData.FileKnown.BAD : TskData.FileKnown.UNKNOWN;
         if (tagDisplayName.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     NbBundle.getMessage(this.getClass(),
@@ -352,31 +356,35 @@ public class GetTagNameDialog extends JDialog {
             tagName = tagNamesMap.get(tagDisplayName);
 
             if (tagName == null) {
+
+                //WJS-TODO 5934
+                Future<TagName> future = Executors.newSingleThreadExecutor().submit(() -> {
+                    try {
+                        return Case.getCurrentCaseThrows().getServices().getTagsManager().addTagName(tagDisplayName, userTagDescription, TagName.HTML_COLOR.NONE, status);
+                    } catch (TskCoreException | NoCurrentCaseException ex) {
+                        Logger.getLogger(AddTagAction.class.getName()).log(Level.SEVERE, "Error adding " + tagDisplayName + " tag name", ex); //NON-NLS
+                    } catch (TagsManager.TagNameAlreadyExistsException ex) {
+                        try {
+                            return Case.getCurrentCaseThrows().getServices().getTagsManager().getDisplayNamesToTagNamesMap().get(tagDisplayName);
+                        } catch (TskCoreException | NoCurrentCaseException ex1) {
+                            Logger.getLogger(AddTagAction.class.getName()).log(Level.SEVERE, tagDisplayName + " exists in database but an error occurred in retrieving it.", ex1); //NON-NLS
+                        }
+                    }
+                    return null;
+                });
                 try {
-                    tagName = Case.getCurrentCaseThrows().getServices().getTagsManager().addTagName(tagDisplayName, userTagDescription, TagName.HTML_COLOR.NONE, status);
-                    dispose();
-                } catch (TskCoreException | NoCurrentCaseException ex) {
-                    Logger.getLogger(AddTagAction.class.getName()).log(Level.SEVERE, "Error adding " + tagDisplayName + " tag name", ex); //NON-NLS
+                    tagName = future.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                }
+                dispose();
+                if (tagName == null) {
                     JOptionPane.showMessageDialog(this,
                             NbBundle.getMessage(this.getClass(),
                                     "GetTagNameDialog.unableToAddTagNameToCase.msg",
                                     tagDisplayName),
                             NbBundle.getMessage(this.getClass(), "GetTagNameDialog.taggingErr"),
                             JOptionPane.ERROR_MESSAGE);
-                    tagName = null;
-                } catch (TagsManager.TagNameAlreadyExistsException ex) {
-                    try {
-                        tagName = Case.getCurrentCaseThrows().getServices().getTagsManager().getDisplayNamesToTagNamesMap().get(tagDisplayName);
-                    } catch (TskCoreException | NoCurrentCaseException ex1) {
-                        Logger.getLogger(AddTagAction.class.getName()).log(Level.SEVERE, tagDisplayName + " exists in database but an error occurred in retrieving it.", ex1); //NON-NLS
-                        JOptionPane.showMessageDialog(this,
-                                NbBundle.getMessage(this.getClass(),
-                                        "GetTagNameDialog.tagNameExistsTskCore.msg",
-                                        tagDisplayName),
-                                NbBundle.getMessage(this.getClass(), "GetTagNameDialog.dupTagErr"),
-                                JOptionPane.ERROR_MESSAGE);
-                        tagName = null;
-                    }
                 }
             } else {
                 JOptionPane.showMessageDialog(this,

@@ -28,6 +28,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -36,6 +39,7 @@ import javax.swing.JOptionPane;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.event.ListDataListener;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.autopsy.coreutils.Logger;
@@ -85,7 +89,7 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
                 }
             }
         });
- 
+
         this.jAllTagsCheckBox.addItemListener(new ItemListener() {
             @Override
             public void itemStateChanged(ItemEvent e) {
@@ -96,22 +100,22 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
             }
         });
     }
-    
+
     HashesReportModuleSettings getConfiguration() {
         return new HashesReportModuleSettings(jAllTagsCheckBox.isSelected(), selectedHashSetName);
     }
-    
+
     void setConfiguration(HashesReportModuleSettings settings) {
         // Need to reset tags. User may have opened a different case or
         // there may not be a case open any more (Command Line wizard).
         customizeComponents();
-        
+
         // update tag selection
         jAllTagsCheckBox.setSelected(settings.isExportAllTags());
         if (settings.isExportAllTags()) {
             selectAllTags(true);
         }
-        
+
         // update hash database selection
         if (settings.getHashDbName() != null) {
             populateHashSetComponents();
@@ -119,15 +123,15 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
         }
     }
 
-    private void customizeComponents() {        
+    private void customizeComponents() {
         populateTagNameComponents();
-        
+
         tagsNamesListModel = new TagNamesListModel();
         tagsNamesRenderer = new TagsNamesListCellRenderer();
         tagNamesListBox.setModel(tagsNamesListModel);
         tagNamesListBox.setCellRenderer(tagsNamesRenderer);
         tagNamesListBox.setVisibleRowCount(-1);
-        
+
         populateHashSetComponents();
     }
 
@@ -135,16 +139,25 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
         // Get the tag names in use for the current case.
         tagNames = new ArrayList<>();
         Map<String, Boolean> updatedTagNameSelections = new LinkedHashMap<>();
-        try {
-            // There may not be a case open when configuring report modules for Command Line execution
-            tagNames = Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
-        } catch (TskCoreException ex) {
-            Logger.getLogger(SaveTaggedHashesToHashDbConfigPanel.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex);
-        } catch (NoCurrentCaseException ex) {
-            // There may not be a case open when configuring report modules for Command Line execution
-            if (Case.isCaseOpen()) {
-                Logger.getLogger(SaveTaggedHashesToHashDbConfigPanel.class.getName()).log(Level.SEVERE, "Exception while getting open case.", ex);
+        //WJS-TODO 5934
+        Future<List<TagName>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                // There may not be a case open when configuring report modules for Command Line execution
+                return Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
+            } catch (TskCoreException ex) {
+                Logger.getLogger(SaveTaggedHashesToHashDbConfigPanel.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex);
+            } catch (NoCurrentCaseException ex) {
+                // There may not be a case open when configuring report modules for Command Line execution
+                if (Case.isCaseOpen()) {
+                    Logger.getLogger(SaveTaggedHashesToHashDbConfigPanel.class.getName()).log(Level.SEVERE, "Exception while getting open case.", ex);
+                }
             }
+            return new ArrayList<>();
+        });
+        try {
+            tagNames = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
 
         // Preserve the previous selections. Note that tagNameSelections is a
@@ -165,7 +178,7 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
         // and when the user changes the hash set configuration.
         hashSetsComboBox.removeAllItems();
         selectedHashSetName = "";
-        
+
         // Get the updateable hash databases and add their hash set names to the
         // JComboBox component.
         updateableHashSets = HashDbManager.getInstance().getUpdateableHashSets();
@@ -232,6 +245,7 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
 
     // This class renders the items in the tag names JList component as JCheckbox components.
     private class TagsNamesListCellRenderer extends JCheckBox implements ListCellRenderer<String> {
+
         private static final long serialVersionUID = 1L;
 
         @Override
@@ -364,7 +378,7 @@ class SaveTaggedHashesToHashDbConfigPanel extends javax.swing.JPanel {
     }//GEN-LAST:event_selectAllButtonActionPerformed
 
     private void hashSetsComboBoxActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_hashSetsComboBoxActionPerformed
-        selectedHashSetName = (String)hashSetsComboBox.getSelectedItem();
+        selectedHashSetName = (String) hashSetsComboBox.getSelectedItem();
     }//GEN-LAST:event_hashSetsComboBoxActionPerformed
 
     private void deselectAllButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_deselectAllButtonActionPerformed

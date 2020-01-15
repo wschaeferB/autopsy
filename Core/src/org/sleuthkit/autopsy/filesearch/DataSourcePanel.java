@@ -26,8 +26,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.event.ListSelectionEvent;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.autopsy.coreutils.Logger;
@@ -70,23 +74,34 @@ public class DataSourcePanel extends javax.swing.JPanel {
      * @return The list of data source name
      */
     private List<String> getDataSourceArray() {
-        List<String> dsList = new ArrayList<>();
-        try {
-            Case currentCase = Case.getCurrentCaseThrows();
-            SleuthkitCase tskDb = currentCase.getSleuthkitCase();
-            List<DataSource> dataSources = tskDb.getDataSources();
-            Collections.sort(dataSources, (DataSource ds1, DataSource ds2) -> ds1.getName().compareTo(ds2.getName()));
-            for (DataSource ds : dataSources) {
-                String dsName = ds.getName();
-                File dataSourceFullName = new File(dsName);
-                String displayName = dataSourceFullName.getName();
-                dataSourceMap.put(ds.getId(), displayName);
-                dsList.add(displayName);
+        //WJS-TODO 5934
+        Future<List<String>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<String> dsList = new ArrayList<>();
+            try {
+                Case currentCase = Case.getCurrentCaseThrows();
+                SleuthkitCase tskDb = currentCase.getSleuthkitCase();
+                List<DataSource> dataSources = tskDb.getDataSources();
+                Collections.sort(dataSources, (DataSource ds1, DataSource ds2) -> ds1.getName().compareTo(ds2.getName()));
+                for (DataSource ds : dataSources) {
+                    String dsName = ds.getName();
+                    File dataSourceFullName = new File(dsName);
+                    String displayName = dataSourceFullName.getName();
+                    dataSourceMap.put(ds.getId(), displayName);
+                    dsList.add(displayName);
+                }
+            } catch (NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "Unable to get current open case.", ex);
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Failed to get data source info from database.", ex);
             }
-        } catch (NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "Unable to get current open case.", ex);
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Failed to get data source info from database.", ex);
+            return dsList;
+        });
+        List<String> dsList;
+        try {
+            dsList = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            dsList = new ArrayList<>();
         }
         return dsList;
     }

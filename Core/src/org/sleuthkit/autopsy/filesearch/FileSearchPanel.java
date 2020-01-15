@@ -1,15 +1,15 @@
 /*
  * Autopsy Forensic Browser
- * 
+ *
  * Copyright 2011-2019 Basis Technology Corp.
  * Contact: carrier <at> sleuthkit <dot> org
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,6 +29,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -36,6 +39,7 @@ import javax.swing.border.EmptyBorder;
 import org.openide.DialogDisplayer;
 import org.openide.NotifyDescriptor;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.windows.TopComponent;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -77,39 +81,39 @@ class FileSearchPanel extends javax.swing.JPanel {
      * This method is called from within the constructor to initialize the form.
      */
     private void customizeComponents() {
-        
+
         JLabel label = new JLabel(NbBundle.getMessage(this.getClass(), "FileSearchPanel.custComp.label.text"));
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         label.setBorder(new EmptyBorder(0, 0, 10, 0));
-        
+
         JPanel panel1 = new JPanel();
-        panel1.setLayout(new GridLayout(1,2));
+        panel1.setLayout(new GridLayout(1, 2));
         panel1.add(new JLabel(""));
         JPanel panel2 = new JPanel();
-        panel2.setLayout(new GridLayout(1,2, 20, 0));
+        panel2.setLayout(new GridLayout(1, 2, 20, 0));
         JPanel panel3 = new JPanel();
-        panel3.setLayout(new GridLayout(1,2, 20, 0));
+        panel3.setLayout(new GridLayout(1, 2, 20, 0));
         JPanel panel4 = new JPanel();
-        panel4.setLayout(new GridLayout(1,2, 20, 0));
+        panel4.setLayout(new GridLayout(1, 2, 20, 0));
         JPanel panel5 = new JPanel();
-        panel5.setLayout(new GridLayout(1,2, 20, 0));
+        panel5.setLayout(new GridLayout(1, 2, 20, 0));
 
         // Create and add filter areas
-        NameSearchFilter nameFilter =  new NameSearchFilter();
+        NameSearchFilter nameFilter = new NameSearchFilter();
         SizeSearchFilter sizeFilter = new SizeSearchFilter();
         DateSearchFilter dateFilter = new DateSearchFilter();
         KnownStatusSearchFilter knowStatusFilter = new KnownStatusSearchFilter();
         HashSearchFilter hashFilter = new HashSearchFilter();
         MimeTypeFilter mimeTypeFilter = new MimeTypeFilter();
         DataSourceFilter dataSourceFilter = new DataSourceFilter();
-        
-        panel2.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.name"),nameFilter));
-        
-        panel3.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.metadata"),sizeFilter));
-        
-        panel2.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.metadata"), dateFilter)); 
+
+        panel2.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.name"), nameFilter));
+
+        panel3.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.metadata"), sizeFilter));
+
+        panel2.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.metadata"), dateFilter));
         panel3.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.knownStatus"), knowStatusFilter));
-        
+
         panel5.add(new FilterArea(NbBundle.getMessage(this.getClass(), "HashSearchPanel.md5CheckBox.text"), hashFilter));
         panel5.add(new JLabel(""));
         panel4.add(new FilterArea(NbBundle.getMessage(this.getClass(), "FileSearchPanel.filterTitle.metadata"), mimeTypeFilter));
@@ -119,7 +123,7 @@ class FileSearchPanel extends javax.swing.JPanel {
         filterPanel.add(panel3);
         filterPanel.add(panel4);
         filterPanel.add(panel5);
-        
+
         filters.add(nameFilter);
         filters.add(sizeFilter);
         filters.add(dateFilter);
@@ -127,7 +131,7 @@ class FileSearchPanel extends javax.swing.JPanel {
         filters.add(hashFilter);
         filters.add(mimeTypeFilter);
         filters.add(dataSourceFilter);
-        
+
         for (FileSearchFilter filter : this.getFilters()) {
             filter.addPropertyChangeListener(new PropertyChangeListener() {
                 @Override
@@ -141,7 +145,7 @@ class FileSearchPanel extends javax.swing.JPanel {
             public void actionPerformed(ActionEvent e) {
                 search();
             }
-        });        
+        });
         searchButton.setEnabled(isValidSearch());
     }
 
@@ -180,30 +184,41 @@ class FileSearchPanel extends javax.swing.JPanel {
                 // try to get the number of matches first
                 Case currentCase = Case.getCurrentCaseThrows(); // get the most updated case
                 long totalMatches = 0;
-                List<AbstractFile> contentList = null;
+                //WJS-TODO 5934
+                Future<SearchNode> future = Executors.newSingleThreadExecutor().submit(() -> {
+                    List<AbstractFile> contentList = null;
+                    try {
+                        SleuthkitCase tskDb = currentCase.getSleuthkitCase();
+                        contentList = tskDb.findAllFilesWhere(this.getQuery());
+
+                    } catch (TskCoreException ex) {
+                        Logger logger = Logger.getLogger(this.getClass().getName());
+                        logger.log(Level.WARNING, "Error while trying to get the number of matches.", ex); //NON-NLS
+                    }
+
+                    if (contentList == null) {
+                        contentList = Collections.<AbstractFile>emptyList();
+                    }
+                    return new SearchNode(contentList);
+
+                });
+                SearchNode sn;
                 try {
-                    SleuthkitCase tskDb = currentCase.getSleuthkitCase();
-                    contentList = tskDb.findAllFilesWhere(this.getQuery());
-
-                } catch (TskCoreException ex) {
-                    Logger logger = Logger.getLogger(this.getClass().getName());
-                    logger.log(Level.WARNING, "Error while trying to get the number of matches.", ex); //NON-NLS
+                    sn = future.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                    sn = new SearchNode(Collections.<AbstractFile>emptyList());
                 }
 
-                if (contentList == null) {
-                    contentList = Collections.<AbstractFile>emptyList();
-                }
-
-                SearchNode sn = new SearchNode(contentList);
                 TableFilterNode tableFilterNode = new TableFilterNode(sn, true, sn.getName());
                 final TopComponent searchResultWin;
-                if (contentList.isEmpty()) {
+                if (sn.getChildren().getNodesCount() == 0) {
                     Node emptyNode = new TableFilterNode(new EmptyNode(Bundle.FileSearchPanel_emptyNode_display_text()), true);
                     searchResultWin = DataResultTopComponent.createInstance(title, pathText,
-                        emptyNode, 0);
+                            emptyNode, 0);
                 } else {
                     searchResultWin = DataResultTopComponent.createInstance(title, pathText,
-                        tableFilterNode, contentList.size());
+                            tableFilterNode, sn.getChildren().getNodesCount());
                 }
                 searchResultWin.requestActive(); // make it the active top component
 

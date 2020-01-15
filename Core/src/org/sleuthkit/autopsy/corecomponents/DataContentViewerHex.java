@@ -25,6 +25,9 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.sleuthkit.autopsy.coreutils.PlatformUtil;
 import org.openide.util.NbBundle;
@@ -36,6 +39,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Utilities;
 import org.netbeans.api.progress.ProgressHandle;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.lookup.ServiceProvider;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -487,12 +491,19 @@ public class DataContentViewerHex extends javax.swing.JPanel implements DataCont
 
         int bytesRead = 0;
         if (dataSource.getSize() > 0) {
+            //WJS-TODO 5934
+            Future<Integer> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    return dataSource.read(data, offset, PAGE_LENGTH); // read the data
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, "Error while trying to show the hex content.", ex); //NON-NLS
+                    return 0;
+                }
+            });
             try {
-                bytesRead = dataSource.read(data, offset, PAGE_LENGTH); // read the data
-            } catch (TskCoreException ex) {
-                errorText = NbBundle.getMessage(this.getClass(), "DataContentViewerHex.setDataView.errorText", offset,
-                        offset + PAGE_LENGTH);
-                logger.log(Level.WARNING, "Error while trying to show the hex content.", ex); //NON-NLS
+                bytesRead = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
 

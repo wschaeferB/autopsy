@@ -21,6 +21,9 @@ package org.sleuthkit.autopsy.filequery;
 import java.awt.Component;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -29,6 +32,7 @@ import org.openide.awt.ActionID;
 import org.openide.awt.ActionReference;
 import org.openide.awt.ActionReferences;
 import org.openide.awt.ActionRegistration;
+import org.openide.util.Exceptions;
 import org.openide.util.HelpCtx;
 import org.openide.util.NbBundle;
 import org.openide.util.actions.CallableSystemAction;
@@ -95,27 +99,39 @@ public final class OpenFileDiscoveryAction extends CallableSystemAction implemen
      * @param tc The File Discovery Top component.
      */
     private void displayErrorMessage(DiscoveryTopComponent tc) {
-        //check if modules run and assemble message
-        try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            Map<Long, DataSourceModulesWrapper> dataSourceIngestModules = new HashMap<>();
-            for (DataSource dataSource : skCase.getDataSources()) {
-                dataSourceIngestModules.put(dataSource.getId(), new DataSourceModulesWrapper(dataSource.getName()));
-            }
-
-            for (IngestJobInfo jobInfo : skCase.getIngestJobs()) {
-                dataSourceIngestModules.get(jobInfo.getObjectId()).updateModulesRun(jobInfo);
-            }
+//WJS-TODO 5934
+        Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+//check if modules run and assemble message
             String message = "";
-            for (DataSourceModulesWrapper dsmodulesWrapper : dataSourceIngestModules.values()) {
-                message += dsmodulesWrapper.getMessage();
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                Map<Long, DataSourceModulesWrapper> dataSourceIngestModules = new HashMap<>();
+                for (DataSource dataSource : skCase.getDataSources()) {
+                    dataSourceIngestModules.put(dataSource.getId(), new DataSourceModulesWrapper(dataSource.getName()));
+                }
+
+                for (IngestJobInfo jobInfo : skCase.getIngestJobs()) {
+                    dataSourceIngestModules.get(jobInfo.getObjectId()).updateModulesRun(jobInfo);
+                }
+
+                for (DataSourceModulesWrapper dsmodulesWrapper : dataSourceIngestModules.values()) {
+                    message += dsmodulesWrapper.getMessage();
+                }
+            } catch (NoCurrentCaseException | TskCoreException ex) {
+                logger.log(Level.WARNING, "Exception while determining which modules have been run for File Discovery", ex);
             }
-            if (!message.isEmpty()) {
-                JOptionPane.showMessageDialog(tc, message, Bundle.OpenFileDiscoveryAction_resultsIncomplete_text(), JOptionPane.INFORMATION_MESSAGE);
-            }
-        } catch (NoCurrentCaseException | TskCoreException ex) {
-            logger.log(Level.WARNING, "Exception while determining which modules have been run for File Discovery", ex);
+            return message;
+        });
+        String message = "";
+        try {
+            message = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
+        if (!message.isEmpty()) {
+            JOptionPane.showMessageDialog(tc, message, Bundle.OpenFileDiscoveryAction_resultsIncomplete_text(), JOptionPane.INFORMATION_MESSAGE);
+        }
+
     }
 
     /**

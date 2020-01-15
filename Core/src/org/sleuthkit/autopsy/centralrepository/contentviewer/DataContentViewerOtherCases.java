@@ -681,7 +681,17 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      */
     private void addOrUpdateNodeData(final Case autopsyCase, Map<UniquePathKey, OtherOccurrenceNodeInstanceData> nodeDataMap, AbstractFile newFile) throws TskCoreException, EamDbException {
 
-        OtherOccurrenceNodeInstanceData newNode = new OtherOccurrenceNodeInstanceData(newFile, autopsyCase);
+        //WJS-TODO 5934
+        Future<OtherOccurrenceNodeInstanceData> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return new OtherOccurrenceNodeInstanceData(newFile, autopsyCase);
+        });
+        OtherOccurrenceNodeInstanceData newNode;
+        try {
+            newNode = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            throw new TskCoreException("unable to get Other occurrence node instance data", ex);
+        }
 
         // If the caseDB object has a notable tag associated with it, update
         // the known status to BAD

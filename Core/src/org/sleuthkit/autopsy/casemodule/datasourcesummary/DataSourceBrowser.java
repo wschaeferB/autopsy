@@ -29,6 +29,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Observer;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import javax.swing.event.ListSelectionListener;
@@ -150,18 +153,29 @@ final class DataSourceBrowser extends javax.swing.JPanel implements ExplorerMana
      *         the current case.
      */
     private List<DataSourceSummary> getDataSourceSummaryList(Map<Long, String> usageMap, Map<Long, Long> fileCountsMap) {
-        List<DataSourceSummary> summaryList = new ArrayList<>();
 
-        final Map<Long, Long> artifactCountsMap = DataSourceInfoUtilities.getCountsOfArtifacts();
-        final Map<Long, Long> tagCountsMap = DataSourceInfoUtilities.getCountsOfTags();
-        try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            for (DataSource dataSource : skCase.getDataSources()) {
-                summaryList.add(new DataSourceSummary(dataSource, usageMap.get(dataSource.getId()),
-                        fileCountsMap.get(dataSource.getId()), artifactCountsMap.get(dataSource.getId()), tagCountsMap.get(dataSource.getId())));
+        //WJS-TODO 5934
+        Future< List<DataSourceSummary>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<DataSourceSummary> summaryList = new ArrayList<>();
+
+            final Map<Long, Long> artifactCountsMap = DataSourceInfoUtilities.getCountsOfArtifacts();
+            final Map<Long, Long> tagCountsMap = DataSourceInfoUtilities.getCountsOfTags();
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                for (DataSource dataSource : skCase.getDataSources()) {
+                    summaryList.add(new DataSourceSummary(dataSource, usageMap.get(dataSource.getId()),
+                            fileCountsMap.get(dataSource.getId()), artifactCountsMap.get(dataSource.getId()), tagCountsMap.get(dataSource.getId())));
+                }
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.WARNING, "Unable to datasources or their counts, providing empty results", ex);
             }
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.WARNING, "Unable to datasources or their counts, providing empty results", ex);
+            return summaryList;
+        });
+        List<DataSourceSummary> summaryList;
+        try {
+            summaryList = future.get();
+        } catch (ExecutionException | InterruptedException ex) {
+            summaryList = new ArrayList<>();
         }
         return summaryList;
     }

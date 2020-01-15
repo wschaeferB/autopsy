@@ -27,6 +27,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -34,6 +37,7 @@ import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.event.ListDataListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -70,44 +74,54 @@ class ArtifactSelectionDialog extends javax.swing.JDialog {
      */
     @SuppressWarnings("deprecation")
     private void populateList() {
-        try {
-            ArrayList<BlackboardArtifact.Type> doNotReport = new ArrayList<>();
-            doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getDisplayName()));
-            doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getDisplayName())); // output is too unstructured for table review 
-            doNotReport.add(new BlackboardArtifact.Type(
+        ArrayList<BlackboardArtifact.Type> doNotReport = new ArrayList<>();
+        doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getDisplayName()));
+        doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getDisplayName())); // output is too unstructured for table review 
+        doNotReport.add(new BlackboardArtifact.Type(
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getTypeID(),
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getLabel(),
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getDisplayName()));
-            doNotReport.add(new BlackboardArtifact.Type(
+        doNotReport.add(new BlackboardArtifact.Type(
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getTypeID(),
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getLabel(),
                 BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getDisplayName()));
-            
-            artifactTypes = Case.getCurrentCaseThrows().getSleuthkitCase().getArtifactTypesInUse();
-            artifactTypes.removeAll(doNotReport);
-            Collections.sort(artifactTypes, new Comparator<BlackboardArtifact.Type>() {
-                @Override
-                public int compare(BlackboardArtifact.Type o1, BlackboardArtifact.Type o2) {
-                    return o1.getDisplayName().compareTo(o2.getDisplayName());
+        //WJS-TODO 5934
+        Future<List<BlackboardArtifact.Type>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return Case.getCurrentCaseThrows().getSleuthkitCase().getArtifactTypesInUse();
+            } catch (TskCoreException ex) {
+                Logger.getLogger(ArtifactSelectionDialog.class.getName()).log(Level.SEVERE, "Error getting list of artifacts in use: {0}", ex.getLocalizedMessage()); //NON-NLS
+            } catch (NoCurrentCaseException ex) {
+                // There may not be a case open, for example when configuring Command Line reports
+                if (Case.isCaseOpen()) {
+                    Logger.getLogger(ArtifactSelectionDialog.class.getName()).log(Level.SEVERE, "Exception while getting open case.", ex.getLocalizedMessage()); //NON-NLS
                 }
-            });
-
-            artifactTypeSelections = new HashMap<>();
-            for (BlackboardArtifact.Type type : artifactTypes) {
-                artifactTypeSelections.put(type, Boolean.TRUE);
             }
-        } catch (TskCoreException ex) {
-            Logger.getLogger(ArtifactSelectionDialog.class.getName()).log(Level.SEVERE, "Error getting list of artifacts in use: {0}", ex.getLocalizedMessage()); //NON-NLS
-        } catch (NoCurrentCaseException ex) {
-            // There may not be a case open, for example when configuring Command Line reports
-            if (Case.isCaseOpen()) {
-                Logger.getLogger(ArtifactSelectionDialog.class.getName()).log(Level.SEVERE, "Exception while getting open case.", ex.getLocalizedMessage()); //NON-NLS
-            }
+            return new ArrayList<>();
+        });
+        try {
+            artifactTypes = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            artifactTypes = new ArrayList<>();
         }
+        artifactTypes.removeAll(doNotReport);
+        Collections.sort(artifactTypes, new Comparator<BlackboardArtifact.Type>() {
+            @Override
+            public int compare(BlackboardArtifact.Type o1, BlackboardArtifact.Type o2) {
+                return o1.getDisplayName().compareTo(o2.getDisplayName());
+            }
+        });
+
+        artifactTypeSelections = new HashMap<>();
+        for (BlackboardArtifact.Type type : artifactTypes) {
+            artifactTypeSelections.put(type, Boolean.TRUE);
+        }
+
     }
 
     private void customInit() {

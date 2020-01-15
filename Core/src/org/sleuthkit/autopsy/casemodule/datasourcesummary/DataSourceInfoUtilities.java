@@ -28,6 +28,10 @@ import org.sleuthkit.datamodel.TskCoreException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.datamodel.BlackboardArtifact;
@@ -52,28 +56,39 @@ final class DataSourceInfoUtilities {
      *         expected to be in the datasource
      */
     static Map<Long, String> getDataSourceTypes() {
-        try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            List<BlackboardArtifact> listOfArtifacts = skCase.getBlackboardArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_DATA_SOURCE_USAGE);
-            Map<Long, String> typeMap = new HashMap<>();
-            for (BlackboardArtifact typeArtifact : listOfArtifacts) {
-                BlackboardAttribute descriptionAttr = typeArtifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DESCRIPTION));
-                if (typeArtifact.getDataSource() != null && descriptionAttr != null) {
-                    long dsId = typeArtifact.getDataSource().getId();
-                    String type = typeMap.get(typeArtifact.getDataSource().getId());
-                    if (type == null) {
-                        type = descriptionAttr.getValueString();
-                    } else {
-                        type = type + ", " + descriptionAttr.getValueString();
+        //WJS-TODO 5934
+        Future<Map<Long, String>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                List<BlackboardArtifact> listOfArtifacts = skCase.getBlackboardArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_DATA_SOURCE_USAGE);
+                Map<Long, String> typeMap = new HashMap<>();
+                for (BlackboardArtifact typeArtifact : listOfArtifacts) {
+                    BlackboardAttribute descriptionAttr = typeArtifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DESCRIPTION));
+                    if (typeArtifact.getDataSource() != null && descriptionAttr != null) {
+                        long dsId = typeArtifact.getDataSource().getId();
+                        String type = typeMap.get(typeArtifact.getDataSource().getId());
+                        if (type == null) {
+                            type = descriptionAttr.getValueString();
+                        } else {
+                            type = type + ", " + descriptionAttr.getValueString();
+                        }
+                        typeMap.put(dsId, type);
                     }
-                    typeMap.put(dsId, type);
                 }
+                return typeMap;
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.WARNING, "Unable to get types of files for all datasources, providing empty results", ex);
+                return Collections.emptyMap();
             }
-            return typeMap;
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.WARNING, "Unable to get types of files for all datasources, providing empty results", ex);
-            return Collections.emptyMap();
+
+        });
+        Map<Long, String> typeMap;
+        try {
+            typeMap = future.get();
+        } catch (ExecutionException | InterruptedException ex) {
+            typeMap = Collections.emptyMap();
         }
+        return typeMap;
     }
 
     /**
@@ -158,24 +173,34 @@ final class DataSourceInfoUtilities {
      *         source.
      */
     static Map<Long, String> getOperatingSystems() {
-        Map<Long, String> osDetailMap = new HashMap<>();
-        try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            ArrayList<BlackboardArtifact> osInfoArtifacts = skCase.getBlackboardArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_OS_INFO);
-            for (BlackboardArtifact osInfo : osInfoArtifacts) {
-                BlackboardAttribute programName = osInfo.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_PROG_NAME));
-                if (programName != null) {
-                    String currentOsString = osDetailMap.get(osInfo.getDataSource().getId());
-                    if (currentOsString == null || currentOsString.isEmpty()) {
-                        currentOsString = programName.getValueString();
-                    } else {
-                        currentOsString = currentOsString + ", " + programName.getValueString();
+        //WJS-TODO 5934
+        Future<Map<Long, String>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            Map<Long, String> osDetailMap = new HashMap<>();
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                ArrayList<BlackboardArtifact> osInfoArtifacts = skCase.getBlackboardArtifacts(BlackboardArtifact.ARTIFACT_TYPE.TSK_OS_INFO);
+                for (BlackboardArtifact osInfo : osInfoArtifacts) {
+                    BlackboardAttribute programName = osInfo.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_PROG_NAME));
+                    if (programName != null) {
+                        String currentOsString = osDetailMap.get(osInfo.getDataSource().getId());
+                        if (currentOsString == null || currentOsString.isEmpty()) {
+                            currentOsString = programName.getValueString();
+                        } else {
+                            currentOsString = currentOsString + ", " + programName.getValueString();
+                        }
+                        osDetailMap.put(osInfo.getDataSource().getId(), currentOsString);
                     }
-                    osDetailMap.put(osInfo.getDataSource().getId(), currentOsString);
                 }
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "Failed to load OS info artifacts.", ex);
             }
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "Failed to load OS info artifacts.", ex);
+            return osDetailMap;
+        });
+        Map<Long, String> osDetailMap;
+        try {
+            osDetailMap = future.get();
+        } catch (ExecutionException | InterruptedException ex) {
+            osDetailMap = Collections.emptyMap();
         }
         return osDetailMap;
     }
@@ -196,17 +221,26 @@ final class DataSourceInfoUtilities {
      */
     static Long getCountOfFilesForMimeTypes(DataSource currentDataSource, Set<String> setOfMimeTypes) {
         if (currentDataSource != null) {
+            //WJS-TODO 5934
+            Future<Long> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    String inClause = String.join("', '", setOfMimeTypes);
+                    SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                    return skCase.countFilesWhere("data_source_obj_id=" + currentDataSource.getId()
+                            + " AND type<>" + TskData.TSK_DB_FILES_TYPE_ENUM.VIRTUAL_DIR.getFileType()
+                            + " AND dir_type<>" + TskData.TSK_FS_NAME_TYPE_ENUM.VIRT_DIR.getValue()
+                            + " AND mime_type IN ('" + inClause + "')"
+                            + " AND name<>''");
+                } catch (TskCoreException | NoCurrentCaseException ex) {
+                    logger.log(Level.WARNING, "Unable to get count of files for specified mime types", ex);
+                    //unable to get count of files for the specified mimetypes cell will be displayed as empty
+                }
+                return null;
+            });
             try {
-                String inClause = String.join("', '", setOfMimeTypes);
-                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-                return skCase.countFilesWhere("data_source_obj_id=" + currentDataSource.getId()
-                        + " AND type<>" + TskData.TSK_DB_FILES_TYPE_ENUM.VIRTUAL_DIR.getFileType()
-                        + " AND dir_type<>" + TskData.TSK_FS_NAME_TYPE_ENUM.VIRT_DIR.getValue()
-                        + " AND mime_type IN ('" + inClause + "')"
-                        + " AND name<>''");
-            } catch (TskCoreException | NoCurrentCaseException ex) {
-                logger.log(Level.WARNING, "Unable to get count of files for specified mime types", ex);
-                //unable to get count of files for the specified mimetypes cell will be displayed as empty
+                return future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
         return null;
@@ -309,16 +343,26 @@ final class DataSourceInfoUtilities {
      *         data source.
      */
     static Map<Long, Map<String, Long>> getCountsOfArtifactsByType() {
+        //WJS-TODO 5934
+        Future<Map<Long, Map<String, Long>>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                final String countArtifactsQuery = "blackboard_artifacts.data_source_obj_id, blackboard_artifact_types.display_name AS label, COUNT(*) AS value"
+                        + " FROM blackboard_artifacts, blackboard_artifact_types"
+                        + " WHERE blackboard_artifacts.artifact_type_id = blackboard_artifact_types.artifact_type_id"
+                        + " GROUP BY blackboard_artifacts.data_source_obj_id, blackboard_artifact_types.display_name";
+                return getLabeledValuesMap(countArtifactsQuery);
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.WARNING, "Unable to get counts of all artifact types for all datasources, providing empty results", ex);
+                return Collections.emptyMap();
+            }
+        });
+        Map<Long, Map<String, Long>> artifactsMap;
         try {
-            final String countArtifactsQuery = "blackboard_artifacts.data_source_obj_id, blackboard_artifact_types.display_name AS label, COUNT(*) AS value"
-                    + " FROM blackboard_artifacts, blackboard_artifact_types"
-                    + " WHERE blackboard_artifacts.artifact_type_id = blackboard_artifact_types.artifact_type_id"
-                    + " GROUP BY blackboard_artifacts.data_source_obj_id, blackboard_artifact_types.display_name";
-            return getLabeledValuesMap(countArtifactsQuery);
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.WARNING, "Unable to get counts of all artifact types for all datasources, providing empty results", ex);
-            return Collections.emptyMap();
+            artifactsMap = future.get();
+        } catch (ExecutionException | InterruptedException ex) {
+            artifactsMap = Collections.emptyMap();
         }
+        return artifactsMap;
     }
 
     /**
@@ -352,10 +396,20 @@ final class DataSourceInfoUtilities {
      * @throws NoCurrentCaseException
      */
     private static Map<Long, Long> getValuesMap(String query) throws TskCoreException, NoCurrentCaseException {
-        SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-        DataSourceSingleValueCallback callback = new DataSourceSingleValueCallback();
-        skCase.getCaseDbAccessManager().select(query, callback);
-        return callback.getMapOfValues();
+        //WJS-TODO 5934
+        Future<Map<Long, Long>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+            DataSourceSingleValueCallback callback = new DataSourceSingleValueCallback();
+            skCase.getCaseDbAccessManager().select(query, callback);
+            return callback.getMapOfValues();
+        });
+        Map<Long, Long> valueMap;
+        try {
+            valueMap = future.get();
+        } catch (ExecutionException | InterruptedException ex) {
+            valueMap = Collections.emptyMap();
+        }
+        return valueMap;
     }
 
     /**

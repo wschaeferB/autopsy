@@ -26,10 +26,14 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JOptionPane;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.table.AbstractTableModel;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.ingest.IngestManager;
@@ -72,7 +76,7 @@ public final class IngestJobInfoPanel extends javax.swing.JPanel {
             this.ingestModuleTable.setModel(this.ingestModuleTableModel);
         });
 
-        IngestManager.getInstance().addIngestJobEventListener(INGEST_JOB_EVENTS_OF_INTEREST , (PropertyChangeEvent evt) -> {
+        IngestManager.getInstance().addIngestJobEventListener(INGEST_JOB_EVENTS_OF_INTEREST, (PropertyChangeEvent evt) -> {
             if (evt.getPropertyName().equals(IngestManager.IngestJobEvent.STARTED.toString())
                     || evt.getPropertyName().equals(IngestManager.IngestJobEvent.CANCELLED.toString())
                     || evt.getPropertyName().equals(IngestManager.IngestJobEvent.COMPLETED.toString())) {
@@ -109,14 +113,23 @@ public final class IngestJobInfoPanel extends javax.swing.JPanel {
      * Get the updated complete list of ingest jobs.
      */
     private void refresh() {
+        //WJS-TODO 5934
+        Future<List<IngestJobInfo>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                return skCase.getIngestJobs();
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "Failed to load ingest jobs.", ex);
+            }
+            return new ArrayList<>();
+        });
         try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            this.ingestJobs = skCase.getIngestJobs();
-            setDataSource(selectedDataSource);
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "Failed to load ingest jobs.", ex);
+            this.ingestJobs = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
             JOptionPane.showMessageDialog(this, Bundle.IngestJobInfoPanel_loadIngestJob_error_text(), Bundle.IngestJobInfoPanel_loadIngestJob_error_title(), JOptionPane.ERROR_MESSAGE);
         }
+        setDataSource(selectedDataSource);
     }
 
     @Messages({"IngestJobInfoPanel.IngestJobTableModel.StartTime.header=Start Time",

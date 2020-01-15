@@ -19,10 +19,14 @@
 package org.sleuthkit.autopsy.menuactions;
 
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import javax.swing.JComponent;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import org.openide.awt.DynamicMenuContent;
+import org.openide.util.Exceptions;
 import org.openide.util.Lookup;
 import org.openide.util.NbBundle;
 import org.openide.windows.TopComponent;
@@ -50,13 +54,22 @@ class DataContentDynamicMenu extends JMenuItem implements DynamicMenuContent {
         JMenuItem defaultItem = new JMenuItem(contentWin.getName()); // set the main name
 
         defaultItem.addActionListener(new OpenTopComponentAction(contentWin));
-
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                Case currentCase = Case.getCurrentCaseThrows();
+                return currentCase.hasData();
+            } catch (NoCurrentCaseException ex) {
+                return false; // disable the menu when no case is opened
+            }
+        });
+        boolean enabled = false;
         try {
-            Case currentCase = Case.getCurrentCaseThrows();
-            defaultItem.setEnabled(currentCase.hasData());
-        } catch (NoCurrentCaseException ex) {
-            defaultItem.setEnabled(false); // disable the menu when no case is opened
+            enabled = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
+        defaultItem.setEnabled(enabled);
 
         comps[counter++] = defaultItem;
 

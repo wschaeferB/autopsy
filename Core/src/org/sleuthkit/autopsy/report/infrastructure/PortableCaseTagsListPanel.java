@@ -31,6 +31,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -38,6 +41,7 @@ import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.event.ListDataListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -57,11 +61,11 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
     private final TagNamesListModel tagsNamesListModel = new TagNamesListModel();
     private final TagsNamesListCellRenderer tagsNamesRenderer = new TagsNamesListCellRenderer();
     private final Map<String, Long> tagCounts = new HashMap<>();
-    
+
     private final ReportWizardPortableCaseOptionsPanel wizPanel;
     private final PortableCaseReportModuleSettings settings;
     private final boolean useCaseSpecificData;
-    
+
     /**
      * Creates new form PortableCaseListPanel
      */
@@ -92,52 +96,74 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
     @NbBundle.Messages({
         "PortableCaseTagsListPanel.error.errorTitle=Error getting tag names for case",
         "PortableCaseTagsListPanel.error.noOpenCase=There is no case open",
-        "PortableCaseTagsListPanel.error.errorLoadingTags=Error loading tags",  
-    })    
+        "PortableCaseTagsListPanel.error.errorLoadingTags=Error loading tags",})
     private void customizeComponents() {
         // Get the tag names in use for the current case.
         tagNames = new ArrayList<>();
         Map<Long, Long> tagCountsByID = new HashMap<>();
-        try {
-            // only try to load tag names if we are displaying case specific data, otherwise
-            // we will be displaying case specific data in command line wizard if there is 
-            // a case open in the background
-            if (useCaseSpecificData) {
-                tagNames = Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
-
-                // Get the counts for each tag ID
-                String query = "tag_name_id, count(1) AS tag_count "
-                        + "FROM ("
-                        + "SELECT tag_name_id FROM content_tags UNION ALL SELECT tag_name_id FROM blackboard_artifact_tags"
-                        + ") tag_ids GROUP BY tag_name_id"; // NON-NLS
-                GetTagCountsCallback callback = new GetTagCountsCallback();
-                Case.getCurrentCaseThrows().getSleuthkitCase().getCaseDbAccessManager().select(query, callback);
-                tagCountsByID = callback.getTagCountMap();
-            }
-
-            // Mark the tag names as unselected. Note that tagNameSelections is a
-            // LinkedHashMap so that order is preserved and the tagNames and tagNameSelections
-            // containers are "parallel" containers.
-            for (TagName tagName : tagNames) {
-                tagNameSelections.put(tagName.getDisplayName(), Boolean.FALSE);
-                if (tagCountsByID.containsKey(tagName.getId())) {
-                    tagCounts.put(tagName.getDisplayName(), tagCountsByID.get(tagName.getId()));
-                } else {
-                    tagCounts.put(tagName.getDisplayName(), 0L);
+        // only try to load tag names if we are displaying case specific data, otherwise
+        // we will be displaying case specific data in command line wizard if there is 
+        // a case open in the background
+        if (useCaseSpecificData) {
+            //WJS-TODO 5934
+            Future<List<TagName>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    return Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
+                } catch (TskCoreException | NoCurrentCaseException ex) {
+                    Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex); //NON-NLS
+                    return new ArrayList<>();
                 }
+            });
+
+            try {
+                tagNames = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
-        } catch (TskCoreException ex) {
-            Logger.getLogger(ReportWizardPortableCaseOptionsVisualPanel.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex); // NON-NLS
-        } catch (NoCurrentCaseException ex) {
-            // There may not be a case open when configuring report modules for Command Line execution
-            Logger.getLogger(ReportWizardPortableCaseOptionsVisualPanel.class.getName()).log(Level.WARNING, "Exception while getting open case.", ex); // NON-NLS
+            //WJS-TODO 5934
+            Future< Map<Long, Long>> future2 = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    // Get the counts for each tag ID
+                    String query = "tag_name_id, count(1) AS tag_count "
+                            + "FROM ("
+                            + "SELECT tag_name_id FROM content_tags UNION ALL SELECT tag_name_id FROM blackboard_artifact_tags"
+                            + ") tag_ids GROUP BY tag_name_id"; // NON-NLS
+                    GetTagCountsCallback callback = new GetTagCountsCallback();
+                    Case.getCurrentCaseThrows().getSleuthkitCase().getCaseDbAccessManager().select(query, callback);
+                    return callback.getTagCountMap();
+                } catch (TskCoreException | NoCurrentCaseException ex) {
+                    Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex); //NON-NLS
+                    return new HashMap<>();
+                }
+            });
+
+            try {
+                tagCountsByID = future2.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+            }
+
+        }
+
+        // Mark the tag names as unselected. Note that tagNameSelections is a
+        // LinkedHashMap so that order is preserved and the tagNames and tagNameSelections
+        // containers are "parallel" containers.
+        for (TagName tagName : tagNames) {
+            tagNameSelections.put(tagName.getDisplayName(), Boolean.FALSE);
+            if (tagCountsByID.containsKey(tagName.getId())) {
+                tagCounts.put(tagName.getDisplayName(), tagCountsByID.get(tagName.getId()));
+            } else {
+                tagCounts.put(tagName.getDisplayName(), 0L);
+            }
         }
 
         // Set up the tag names JList component to be a collection of check boxes
         // for selecting tag names. The mouse click listener updates tagNameSelections
         // to reflect user choices.
         tagNamesListBox.setModel(tagsNamesListModel);
+
         tagNamesListBox.setCellRenderer(tagsNamesRenderer);
+
         tagNamesListBox.setVisibleRowCount(-1);
         tagNamesListBox.addMouseListener(new MouseAdapter() {
             @Override
@@ -153,16 +179,18 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
             }
         });
     }
-    
+
     /**
-     * Save the current selections and enabled/disable the finish button as needed.
+     * Save the current selections and enabled/disable the finish button as
+     * needed.
      */
     private void updateTagList() {
         settings.updateTagNames(getSelectedTagNames());
         settings.setAllTagsSelected(jAllTagsCheckBox.isSelected());
         wizPanel.setFinish(settings.isValid());
-    }    
-    
+
+    }
+
     /**
      * This class is a list model for the tag names JList component.
      */
@@ -190,9 +218,11 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
     }
 
     /**
-     * This class renders the items in the tag names JList component as JCheckbox components.
+     * This class renders the items in the tag names JList component as
+     * JCheckbox components.
      */
     private class TagsNamesListCellRenderer extends JCheckBox implements ListCellRenderer<String> {
+
         private static final long serialVersionUID = 1L;
 
         @Override
@@ -208,8 +238,8 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
             }
             return new JLabel();
         }
-    }      
-    
+    }
+
     /**
      * Gets the subset of the tag names in use selected by the user.
      *
@@ -223,16 +253,17 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
             }
         }
         return selectedTagNames;
-    }    
-    
+
+    }
+
     /**
      * Processes the result sets from the tag count query.
-     */    
+     */
     static class GetTagCountsCallback implements CaseDbAccessManager.CaseDbAccessQueryCallback {
 
         private static final Logger logger = Logger.getLogger(GetTagCountsCallback.class.getName());
         private final Map<Long, Long> tagCounts = new HashMap<>();
-        
+
         @Override
         public void process(ResultSet rs) {
             try {
@@ -242,7 +273,7 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
                         Long tagID = rs.getLong("tag_name_id"); // NON-NLS
 
                         tagCounts.put(tagID, tagCount);
-                        
+
                     } catch (SQLException ex) {
                         logger.log(Level.WARNING, "Unable to get data_source_obj_id or value from result set", ex); // NON-NLS
                     }
@@ -250,11 +281,11 @@ class PortableCaseTagsListPanel extends javax.swing.JPanel {
             } catch (SQLException ex) {
                 logger.log(Level.WARNING, "Failed to get next result for values by datasource", ex); // NON-NLS
             }
-        }   
-        
+        }
+
         /**
          * Get a map of the tag name IDs to the number of usages.
-         * 
+         *
          * @return Map of tag name ID to number of items tagged with it
          */
         Map<Long, Long> getTagCountMap() {

@@ -29,6 +29,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JCheckBox;
 import javax.swing.JFrame;
@@ -38,6 +41,7 @@ import javax.swing.JPanel;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.event.ListDataListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.windows.WindowManager;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -105,7 +109,7 @@ final class ReportVisualPanel2 extends JPanel {
                 updateFinishButton();
             }
         });
-        
+
         // enable things based on input settings
         advancedButton.setEnabled(useCaseSpecificData);
         specificTaggedResultsRadioButton.setEnabled(useCaseSpecificData);
@@ -140,23 +144,34 @@ final class ReportVisualPanel2 extends JPanel {
     // Initialize the list of Tags
     private void initTags() {
 
-        List<TagName> tagNamesInUse = new ArrayList<>();
         // NOTE: we do not want to load tag names that came from persisted settings
         // because there might have been new/additional tag names that have been added 
         // by user. We should read tag names from the database each time.
-        try {
-            // only try to load tag names if we are displaying case specific data, otherwise
-            // we will be displaying case specific data in command line wizard if there is 
-            // a case open in the background
-            if (useCaseSpecificData) {
-                // get tags and artifact types from current case
-                tagNamesInUse = Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
+        //WJS-TODO 5934
+        Future<List<TagName>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                // only try to load tag names if we are displaying case specific data, otherwise
+                // we will be displaying case specific data in command line wizard if there is 
+                // a case open in the background
+                if (useCaseSpecificData) {
+                    // get tags and artifact types from current case
+                    return Case.getCurrentCaseThrows().getServices().getTagsManager().getTagNamesInUse();
+                }
+                return new ArrayList<>();
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex); //NON-NLS
+                return null;
             }
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Failed to get tag names", ex); //NON-NLS
+        });
+        List<TagName> tagNamesInUse = new ArrayList<>();
+        try {
+            tagNamesInUse = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        if (tagNamesInUse == null) {
             return;
         }
-
         for (TagName tagName : tagNamesInUse) {
             String notableString = tagName.getKnownStatus() == TskData.FileKnown.BAD ? TagsManager.getNotableTagLabel() : "";
             tagStates.put(tagName.getDisplayName() + notableString, Boolean.FALSE);
@@ -197,35 +212,44 @@ final class ReportVisualPanel2 extends JPanel {
             return;
         }
 
-        try {
-            Case openCase = Case.getCurrentCaseThrows();
-            ArrayList<BlackboardArtifact.Type> doNotReport = new ArrayList<>();
-            doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getDisplayName()));
-            doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getDisplayName())); // output is too unstructured for table review
-            doNotReport.add(new BlackboardArtifact.Type(
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getDisplayName()));
-            doNotReport.add(new BlackboardArtifact.Type(
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getTypeID(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getLabel(),
-                    BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getDisplayName()));
-            // get artifact types that exist in the current case
-            artifacts = openCase.getSleuthkitCase().getArtifactTypesInUse();
-
-            artifacts.removeAll(doNotReport);
-
-            artifactStates = new HashMap<>();
-            for (BlackboardArtifact.Type type : artifacts) {
-                artifactStates.put(type, Boolean.TRUE);
+        ArrayList<BlackboardArtifact.Type> doNotReport = new ArrayList<>();
+        doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_GEN_INFO.getDisplayName()));
+        doNotReport.add(new BlackboardArtifact.Type(BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TOOL_OUTPUT.getDisplayName())); // output is too unstructured for table review
+        doNotReport.add(new BlackboardArtifact.Type(
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_ASSOCIATED_OBJECT.getDisplayName()));
+        doNotReport.add(new BlackboardArtifact.Type(
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getTypeID(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getLabel(),
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_TL_EVENT.getDisplayName()));
+        //WJS-TODO 5934
+        Future<List<BlackboardArtifact.Type>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                // get artifact types that exist in the current case
+                return Case.getCurrentCaseThrows().getSleuthkitCase().getArtifactTypesInUse();
+            } catch (TskCoreException | NoCurrentCaseException ex) {
+                Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Error getting list of artifacts in use: " + ex.getLocalizedMessage(), ex); //NON-NLS
             }
-        } catch (TskCoreException | NoCurrentCaseException ex) {
-            Logger.getLogger(ReportVisualPanel2.class.getName()).log(Level.SEVERE, "Error getting list of artifacts in use: " + ex.getLocalizedMessage(), ex); //NON-NLS
+            return new ArrayList<>();
+        });
+        try {
+            artifacts = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            artifacts = new ArrayList<>();
         }
+        artifacts.removeAll(doNotReport);
+
+        artifactStates = new HashMap<>();
+        for (BlackboardArtifact.Type type : artifacts) {
+            artifactStates.put(type, Boolean.TRUE);
+        }
+
     }
 
     @Override
@@ -279,7 +303,7 @@ final class ReportVisualPanel2 extends JPanel {
 
     /**
      * @return true if the Specific Tags radio button is selected, false
-     * otherwise
+     *         otherwise
      */
     TableReportSettings.TableReportOption getSelectedReportType() {
         if (allTaggedResultsRadioButton.isSelected()) {

@@ -33,12 +33,16 @@ import java.util.List;
 import java.util.Set;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JSeparator;
 import javax.swing.ListCellRenderer;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.openide.util.NbBundle.Messages;
@@ -136,27 +140,36 @@ class DateSearchFilter extends AbstractFileSearchFilter<DateSearchPanel> {
     }
 
     private static List<String> createTimeZoneList() {
+        //WJS-TODO 5934
+        Future<List<String>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            List<String> timeZones = new ArrayList<>();
 
-        List<String> timeZones = new ArrayList<>();
+            try {
+                // get the latest case
+                Case currentCase = Case.getCurrentCaseThrows(); // get the most updated case
 
+                Set<TimeZone> caseTimeZones = currentCase.getTimeZones();
+                for (TimeZone timeZone : caseTimeZones) {
+                    timeZones.add(TimeZoneUtils.createTimeZoneString(timeZone));
+                }
+
+                if (caseTimeZones.size() > 0) {
+                    timeZones.add(SEPARATOR);
+                }
+
+                timeZones.addAll(TimeZoneUtils.createTimeZoneList());
+            } catch (NoCurrentCaseException ex) {
+                // No current case.
+            }
+            return timeZones;
+        });
+        List<String> timeZones;
         try {
-            // get the latest case
-            Case currentCase = Case.getCurrentCaseThrows(); // get the most updated case
-
-            Set<TimeZone> caseTimeZones = currentCase.getTimeZones();
-            for (TimeZone timeZone : caseTimeZones) {
-                timeZones.add(TimeZoneUtils.createTimeZoneString(timeZone));
-            }
-
-            if (caseTimeZones.size() > 0) {
-                timeZones.add(SEPARATOR);
-            }
-
-            timeZones.addAll(TimeZoneUtils.createTimeZoneList());
-        } catch (NoCurrentCaseException ex) {
-            // No current case.
+            timeZones = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            timeZones = new ArrayList<>();
         }
-
         return timeZones;
     }
 
@@ -166,7 +179,7 @@ class DateSearchFilter extends AbstractFileSearchFilter<DateSearchPanel> {
         TimeZone selectedTZ = TimeZone.getTimeZone(tzID); //
         return selectedTZ;
     }
-    
+
     private Calendar getCalendarDate(String dateValue) {
         TimeZone selectedTZ = getSelectedTimeZone();
         Calendar inputDate = null;
@@ -182,14 +195,14 @@ class DateSearchFilter extends AbstractFileSearchFilter<DateSearchPanel> {
         }
         return inputDate;
     }
-      
+
     @Override
     public void addActionListener(ActionListener l) {
         getComponent().addDateChangeListener();
     }
 
     @Override
-    @Messages ({
+    @Messages({
         "DateSearchFilter.errorMessage.endDateBeforeStartDate=The end date should be after the start date.",
         "DateSearchFilter.errorMessage.noCheckboxSelected=At least one date type checkbox must be selected."
     })
@@ -198,17 +211,17 @@ class DateSearchFilter extends AbstractFileSearchFilter<DateSearchPanel> {
         DateSearchPanel panel = this.getComponent();
         Calendar startDate = getCalendarDate(panel.getFromDate());
         Calendar endDate = getCalendarDate(panel.getToDate());
-        
-        if ((startDate != null && startDate.after(endDate)) || (endDate != null && endDate.before(startDate)))  {
+
+        if ((startDate != null && startDate.after(endDate)) || (endDate != null && endDate.before(startDate))) {
             setLastError(Bundle.DateSearchFilter_errorMessage_endDateBeforeStartDate());
             return false;
         }
-        
+
         if (!panel.isValidSearch()) {
             setLastError(Bundle.DateSearchFilter_errorMessage_noCheckboxSelected());
             return false;
         }
-        
+
         return true;
     }
 

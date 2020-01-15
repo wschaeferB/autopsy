@@ -203,43 +203,30 @@ public class ViewContextAction extends AbstractAction {
                     dsname = datasource.getName();
                     Children rootChildren = treeViewExplorerMgr.getRootContext().getChildren();
 
-                    if (null != parentContent) {
-                        // the tree view needs to be searched to find the parent treeview node.
-                        /*
-                         * NOTE: we can't do a lookup by data source name here,
-                         * becase if there are multiple data sources with the
-                         * same name, then "getChildren().findChild(dsname)"
-                         * simply returns the first one that it finds. Instead
-                         * we have to loop over all data sources with that name,
-                         * and make sure we find the correct one.
-                         */
-                        for (int i = 0; i < rootChildren.getNodesCount(); i++) {
-                            // in the root, look for a data source node with the name of interest
-                            Node treeNode = rootChildren.getNodeAt(i);
-                            if (!(treeNode.getName().equals(dsname))) {
-                                continue;
-                            }
-
-                            // for this data source, get the "Data Sources" child node
-                            Node datasourceGroupingNode = treeNode.getChildren().findChild(DataSourcesNode.NAME);
-
-                            // check whether this is the data source we are looking for
-                            parentTreeViewNode = findParentNodeInTree(parentContent, datasourceGroupingNode);
-                            if (parentTreeViewNode != null) {
-                                // found the data source node
-                                break;
-                            }
+                    // the tree view needs to be searched to find the parent treeview node.
+                    /*
+                     * NOTE: we can't do a lookup by data source name here,
+                     * becase if there are multiple data sources with the same
+                     * name, then "getChildren().findChild(dsname)" simply
+                     * returns the first one that it finds. Instead we have to
+                     * loop over all data sources with that name, and make sure
+                     * we find the correct one.
+                     */
+                    for (int i = 0; i < rootChildren.getNodesCount(); i++) {
+                        // in the root, look for a data source node with the name of interest
+                        Node treeNode = rootChildren.getNodeAt(i);
+                        if (!(treeNode.getName().equals(dsname))) {
+                            continue;
                         }
-                    } else {
-                        /*
-                         * If the parent content is null, then the specified
-                         * content is a data source, and the parent tree view
-                         * node is the "Data Sources" node.
-                         */
-                        Node datasourceGroupingNode = rootChildren.findChild(dsname);
-                        if (!Objects.isNull(datasourceGroupingNode)) {
-                            Children dsChildren = datasourceGroupingNode.getChildren();
-                            parentTreeViewNode = dsChildren.findChild(DataSourcesNode.NAME);
+
+                        // for this data source, get the "Data Sources" child node
+                        Node datasourceGroupingNode = treeNode.getChildren().findChild(DataSourcesNode.NAME);
+
+                        // check whether this is the data source we are looking for
+                        parentTreeViewNode = findParentNodeInTree(parentContent, datasourceGroupingNode);
+                        if (parentTreeViewNode != null) {
+                            // found the data source node
+                            break;
                         }
                     }
 
@@ -257,12 +244,10 @@ public class ViewContextAction extends AbstractAction {
                 // Start the search at the DataSourcesNode
                 parentTreeViewNode = treeViewExplorerMgr.getRootContext().getChildren().findChild(DataSourcesNode.NAME);
 
-                if (null != parentContent) {
-                    // the tree view needs to be searched to find the parent treeview node.
-                    Node potentialParentTreeViewNode = findParentNodeInTree(parentContent, parentTreeViewNode);
-                    if (potentialParentTreeViewNode != null) {
-                        parentTreeViewNode = potentialParentTreeViewNode;
-                    }
+                // the tree view needs to be searched to find the parent treeview node.
+                Node potentialParentTreeViewNode = findParentNodeInTree(parentContent, parentTreeViewNode);
+                if (potentialParentTreeViewNode != null) {
+                    parentTreeViewNode = potentialParentTreeViewNode;
                 }
             }
 
@@ -345,18 +330,28 @@ public class ViewContextAction extends AbstractAction {
          * discards "extra" ancestor nodes not shown in the tree, such as the
          * root directory of the file system for file system content.
          */
-        Children treeNodeChildren = node.getChildren();
-        Node parentTreeViewNode = null;
-        for (int i = 0; i < ancestorChildren.getNodesCount(); i++) {
-            Node ancestorNode = ancestorChildren.getNodeAt(i);
-            for (int j = 0; j < treeNodeChildren.getNodesCount(); j++) {
-                Node treeNode = treeNodeChildren.getNodeAt(j);
-                if (ancestorNode.getName().equals(treeNode.getName())) {
-                    parentTreeViewNode = treeNode;
-                    treeNodeChildren = treeNode.getChildren();
-                    break;
+        //WJS-TODO 5934
+        Future<Node> future = Executors.newSingleThreadExecutor().submit(() -> {
+            Children treeNodeChildren = node.getChildren();
+            Node parentTreeViewNode = null;
+            for (int i = 0; i < ancestorChildren.getNodesCount(); i++) {
+                Node ancestorNode = ancestorChildren.getNodeAt(i);
+                for (int j = 0; j < treeNodeChildren.getNodesCount(); j++) {
+                    Node treeNode = treeNodeChildren.getNodeAt(j);
+                    if (ancestorNode.getName().equals(treeNode.getName())) {
+                        parentTreeViewNode = treeNode;
+                        treeNodeChildren = treeNode.getChildren();
+                        break;
+                    }
                 }
             }
+            return parentTreeViewNode;
+        });
+        Node parentTreeViewNode = null;
+        try {
+            parentTreeViewNode = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
         return parentTreeViewNode;
     }
@@ -371,14 +366,26 @@ public class ViewContextAction extends AbstractAction {
         List<Content> lineage = new ArrayList<>();
 
         @Override
-        protected List<Content> defaultVisit(Content content) {
+        protected List<Content> defaultVisit(final Content content) {
             lineage.add(content);
+
+            //WJS-TODO 5934
+            Future<Content> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    return content.getParent();
+                } catch (TskCoreException ex) {
+                    logger.log(Level.SEVERE, String.format("Could not get parent of Content object: %s", content), ex); //NON-NLS
+                    return null;
+                }
+            });
             Content parent = null;
+
             try {
-                parent = content.getParent();
-            } catch (TskCoreException ex) {
-                logger.log(Level.SEVERE, String.format("Could not get parent of Content object: %s", content), ex); //NON-NLS
+                parent = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
+
             return parent == null ? lineage : parent.accept(this);
         }
 

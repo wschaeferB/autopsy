@@ -30,6 +30,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -37,6 +40,7 @@ import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListModel;
 import javax.swing.event.ListDataListener;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -105,6 +109,9 @@ class PortableCaseInterestingItemsListPanel extends javax.swing.JPanel {
         // we will be displaying case specific data in command line wizard if there is 
         // a case open in the background
         if (useCaseSpecificData) {
+              //WJS-TODO 5934
+            Future< Map<String, Long>> future = Executors.newSingleThreadExecutor().submit(() -> {
+
             try {
                 // Get all SET_NAMEs from interesting item artifacts
                 String innerSelect = "SELECT (value_text) AS set_name FROM blackboard_attributes WHERE (artifact_type_id = '"
@@ -117,8 +124,8 @@ class PortableCaseInterestingItemsListPanel extends javax.swing.JPanel {
 
                 GetInterestingItemSetNamesCallback callback = new GetInterestingItemSetNamesCallback();
                 Case.getCurrentCaseThrows().getSleuthkitCase().getCaseDbAccessManager().select(query, callback);
-                setCounts = callback.getSetCountMap();
-                setNames.addAll(setCounts.keySet());
+                return callback.getSetCountMap();
+                
             } catch (TskCoreException ex) {
                 Logger.getLogger(ReportWizardPortableCaseOptionsVisualPanel.class.getName()).log(Level.SEVERE, "Failed to get interesting item set names", ex); // NON-NLS
             } catch (NoCurrentCaseException ex) {
@@ -127,6 +134,14 @@ class PortableCaseInterestingItemsListPanel extends javax.swing.JPanel {
                     Logger.getLogger(ReportWizardPortableCaseOptionsVisualPanel.class.getName()).log(Level.SEVERE, "Exception while getting open case.", ex); // NON-NLS
                 }
             }
+            return new HashMap<>();
+            });
+            try {
+            setCounts = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+            }
+            setNames.addAll(setCounts.keySet());
         }
         Collections.sort(setNames);
 
