@@ -31,6 +31,7 @@ import org.openide.explorer.ExplorerManager;
 import static org.openide.explorer.ExplorerUtils.createLookup;
 import org.openide.nodes.AbstractNode;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.openide.util.Lookup;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -47,7 +48,7 @@ import org.sleuthkit.datamodel.Content;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
- *  A Panel that shows the media (thumbnails) for the selected account.
+ * A Panel that shows the media (thumbnails) for the selected account.
  */
 final class MediaViewer extends JPanel implements RelationshipsViewer, ExplorerManager.Provider, Lookup.Provider {
 
@@ -66,10 +67,10 @@ final class MediaViewer extends JPanel implements RelationshipsViewer, ExplorerM
      */
     public MediaViewer() {
         initComponents();
-        
+
         splitPane.setResizeWeight(0.5);
         splitPane.setDividerLocation(0.5);
-        
+
         proxyLookup = new ModifiableProxyLookup(createLookup(tableEM, getActionMap()));
 
         // See org.sleuthkit.autopsy.timeline.TimeLineTopComponent for a detailed
@@ -112,24 +113,34 @@ final class MediaViewer extends JPanel implements RelationshipsViewer, ExplorerM
     }
 
     @Override
-    public void setSelectionInfo(SelectionInfo info) {
-        Set<Content> relationshipSources;
-        Set<BlackboardArtifact> artifactList = new HashSet<>();
+    public void setSelectionInfo(final SelectionInfo info) {
+        //WJS-TODO 
+        Thread thread5934 = new Thread(() -> {
 
+            Set<Content> relationshipSources;
+            Set<BlackboardArtifact> artifactList = new HashSet<>();
+
+            try {
+                relationshipSources = info.getRelationshipSources();
+
+                relationshipSources.stream().filter((content) -> (content instanceof BlackboardArtifact)).forEachOrdered((content) -> {
+                    artifactList.add((BlackboardArtifact) content);
+                });
+
+            } catch (TskCoreException ex) {
+                logger.log(Level.WARNING, "Unable to update selection.", ex);
+            }
+
+            thumbnailViewer.resetComponent();
+
+            thumbnailViewer.setNode(new TableFilterNode(new DataResultFilterNode(new AbstractNode(new AttachmentThumbnailsChildren(artifactList)), tableEM), true, this.getClass().getName()));
+        });
+        thread5934.start();
         try {
-            relationshipSources = info.getRelationshipSources();
-
-            relationshipSources.stream().filter((content) -> (content instanceof BlackboardArtifact)).forEachOrdered((content) -> {
-                artifactList.add((BlackboardArtifact) content);
-            });
-
-        } catch (TskCoreException ex) {
-            logger.log(Level.WARNING, "Unable to update selection." , ex);
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
-        thumbnailViewer.resetComponent();
-
-        thumbnailViewer.setNode(new TableFilterNode(new DataResultFilterNode(new AbstractNode(new AttachmentThumbnailsChildren(artifactList)), tableEM), true, this.getClass().getName()));
     }
 
     @Override
@@ -166,6 +177,9 @@ final class MediaViewer extends JPanel implements RelationshipsViewer, ExplorerM
         if (nodes != null && nodes.length == 1) {
             AbstractContent thumbnail = nodes[0].getLookup().lookup(AbstractContent.class);
             if (thumbnail != null) {
+                //WJS-TODO 5934
+                Thread thread5934 = new Thread(() -> {
+                
                 try {
                     Content parentContent = thumbnail.getParent();
                     if (parentContent != null && parentContent instanceof BlackboardArtifact) {
@@ -173,6 +187,13 @@ final class MediaViewer extends JPanel implements RelationshipsViewer, ExplorerM
                     }
                 } catch (TskCoreException ex) {
                     logger.log(Level.WARNING, "Unable to get parent Content from AbstraceContent instance.", ex); //NON-NLS
+                }
+                });
+                thread5934.start();
+                try {
+                    thread5934.join();
+                } catch (InterruptedException ex) {
+                    Exceptions.printStackTrace(ex);
                 }
             }
         } else {

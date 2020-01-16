@@ -21,6 +21,7 @@ package org.sleuthkit.autopsy.communications.relationships;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.logging.Level;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
@@ -114,6 +115,9 @@ public final class SelectionInfo {
         }
 
         Set<Content> relationshipSources = new HashSet<>();
+        //WJS-TODO 5934 
+        Thread thread5934 = new Thread(() -> {
+        
         try {
             // Add all nodes
             relationshipSources.addAll(communicationManager.getRelationshipSources(getSelectedNodes(), getCommunicationsFilter()));
@@ -127,6 +131,16 @@ public final class SelectionInfo {
             logger.log(Level.SEVERE, "Failed to get relationships from case database.", ex); //NON-NLS
 
         }
+        });
+        
+        thread5934.start();
+        try {
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        
+        
         return relationshipSources;
     }
 

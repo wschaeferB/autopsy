@@ -23,11 +23,15 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.Action;
 import org.apache.commons.lang3.StringUtils;
 import org.openide.nodes.Children;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.Lookup;
 import org.openide.util.NbBundle;
 import org.openide.util.Utilities;
@@ -60,7 +64,7 @@ import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments.URL
 public final class AttachmentNode extends DisplayableItemNode {
 
     private static final Logger LOGGER = Logger.getLogger(MessageContentViewer.class.getName());
-     
+
     private final Attachment attachment;
     private final AbstractFile attachmentFile;
 
@@ -79,11 +83,11 @@ public final class AttachmentNode extends DisplayableItemNode {
             try {
                 attchmentAbstractFile = Case.getCurrentCaseThrows().getSleuthkitCase().getAbstractFileById(attachmentObjId);
             } catch (TskException | NoCurrentCaseException ex) {
-               LOGGER.log(Level.WARNING, "Error loading attachment file with object id " + attachmentObjId, ex); //NON-NLS
+                LOGGER.log(Level.WARNING, "Error loading attachment file with object id " + attachmentObjId, ex); //NON-NLS
             }
-        } 
+        }
         attachmentFile = attchmentAbstractFile;
-        
+
         // set the icon for node
         setIcon();
     }
@@ -95,18 +99,27 @@ public final class AttachmentNode extends DisplayableItemNode {
         "AttachmentNode.getActions.openInExtViewer.text=Open in External Viewer  Ctrl+E",
         "AttachmentNode.getActions.searchFilesSameMD5.text=Search for files with the same MD5 hash"})
     public Action[] getActions(boolean context) {
-    
+
         List<Action> actionsList = new ArrayList<>();
         actionsList.addAll(Arrays.asList(super.getActions(true)));
-        
+
         // If there is an attachment file
         if (this.attachmentFile != null) {
             actionsList.add(new ViewContextAction(Bundle.AttachmentNode_getActions_viewFileInDir_text(), this.attachmentFile));
             actionsList.add(null); // Creates an item separator
-        
+
             actionsList.add(new NewWindowViewAction(Bundle.AttachmentNode_getActions_viewInNewWin_text(), this));
-            final Collection<AbstractFile> selectedFilesList
-                    = new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+            //WJS-TODO 5934
+            Future<Collection<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                return new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+            });
+            Collection<AbstractFile> selectedFilesList;
+            try {
+                selectedFilesList = future.get();
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
+                selectedFilesList = new HashSet<>();
+            }
             if (selectedFilesList.size() == 1) {
                 actionsList.add(new ExternalViewerAction(
                         Bundle.AttachmentNode_getActions_openInExtViewer_text(), this));
@@ -125,11 +138,11 @@ public final class AttachmentNode extends DisplayableItemNode {
                 actionsList.add(DeleteFileContentTagAction.getInstance());
             }
             actionsList.addAll(ContextMenuExtensionPoint.getActions());
-            
+
         }
         return actionsList.toArray(new Action[0]);
     }
-    
+
     @Override
     protected Sheet createSheet() {
 
@@ -145,7 +158,6 @@ public final class AttachmentNode extends DisplayableItemNode {
             String mimeType = attachmentFile.getMIMEType();
 
             // @TODO Vik-5762: get SCO Columns
-           
             sheetSet.put(new NodeProperty<>("Size", "Size", "", size));
             if (StringUtils.isNotEmpty(mimeType)) {
                 sheetSet.put(new NodeProperty<>("Mime type", "Mime type", "", mimeType));

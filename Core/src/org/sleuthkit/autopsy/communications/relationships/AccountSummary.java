@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.coreutils.ImageUtils;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.datamodel.AbstractFile;
@@ -35,7 +36,7 @@ import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments.Fil
 import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments;
 
 /**
- * 
+ *
  * Class representing the Summary data for a given account.
  */
 class AccountSummary {
@@ -55,9 +56,9 @@ class AccountSummary {
 
     /**
      * Summary constructor.
-     * 
+     *
      * @param selectedAccount Selected account object
-     * @param artifacts List of relationship source artifacts
+     * @param artifacts       List of relationship source artifacts
      */
     AccountSummary(Account selectedAccount, Set<BlackboardArtifact> artifacts) {
         this.selectedAccount = selectedAccount;
@@ -66,7 +67,8 @@ class AccountSummary {
     }
 
     /**
-     * Initialize the counts based on the selected account and the given artifacts.
+     * Initialize the counts based on the selected account and the given
+     * artifacts.
      */
     private void initCounts() {
         for (BlackboardArtifact artifact : artifacts) {
@@ -84,84 +86,104 @@ class AccountSummary {
                         break;
                     case TSK_CONTACT:
                         if (selectedAccount.getAccountType() != Account.Type.DEVICE) {
-                            String typeSpecificID = selectedAccount.getTypeSpecificID();
-                            
-                            List<BlackboardAttribute> attributes = null;
-                            
-                            try{
-                                attributes = artifact.getAttributes();
-                            } catch(TskCoreException ex) {
-                                logger.log(Level.WARNING, String.format("Unable to getAttributes for artifact: %d", artifact.getArtifactID()), ex);
-                                break;
-                            }
-                            
-                            boolean isReference = false;
-                            
-                            for (BlackboardAttribute attribute: attributes) {
-                                String attributeTypeName = attribute.getAttributeType().getTypeName();
-                                String attributeValue = attribute.getValueString();
-                                
-                                if (attributeTypeName.contains("PHONE")) {
-                                    attributeValue = RelationshipsNodeUtilities.normalizePhoneNum(attributeValue);
-                                } else if (attributeTypeName.contains("EMAIL")) {
-                                    attributeValue = RelationshipsNodeUtilities.normalizeEmailAddress(attributeValue);
+                            //WJS-TODO 5934
+                            Thread thread5934 = new Thread(() -> {
+
+                                String typeSpecificID = selectedAccount.getTypeSpecificID();
+
+                                List<BlackboardAttribute> attributes = null;
+
+                                try {
+                                    attributes = artifact.getAttributes();
+                                } catch (TskCoreException ex) {
+                                    logger.log(Level.WARNING, String.format("Unable to getAttributes for artifact: %d", artifact.getArtifactID()), ex);
+                                    Thread.currentThread().interrupt();
                                 }
-                                
-                                if ( typeSpecificID.equals(attributeValue) ) {
-                                    isReference = true;
-                                    break;
+
+                                boolean isReference = false;
+
+                                for (BlackboardAttribute attribute : attributes) {
+                                    String attributeTypeName = attribute.getAttributeType().getTypeName();
+                                    String attributeValue = attribute.getValueString();
+
+                                    if (attributeTypeName.contains("PHONE")) {
+                                        attributeValue = RelationshipsNodeUtilities.normalizePhoneNum(attributeValue);
+                                    } else if (attributeTypeName.contains("EMAIL")) {
+                                        attributeValue = RelationshipsNodeUtilities.normalizeEmailAddress(attributeValue);
+                                    }
+
+                                    if (typeSpecificID.equals(attributeValue)) {
+                                        isReference = true;
+                                        break;
+                                    }
                                 }
-                            }
-                            if (isReference) {
-                                referenceCnt++;
-                            } else {
-                                contactsCnt++;
+                                if (isReference) {
+                                    referenceCnt++;
+                                } else {
+                                    contactsCnt++;
+                                }
+                            });
+                            thread5934.start();
+                            try {
+                                thread5934.join();
+                            } catch (InterruptedException ex) {
+                                Exceptions.printStackTrace(ex);
                             }
                         } else {
                             contactsCnt++;
                         }
+
                         break;
                     default:
                         break;
                 }
             }
-            try {
-                // count the attachments from the TSK_ATTACHMENTS attribute.
-                BlackboardAttribute attachmentsAttr = artifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ATTACHMENTS));
-                if (attachmentsAttr != null) {
-                    String jsonVal = attachmentsAttr.getValueString();
-                    MessageAttachments msgAttachments = new Gson().fromJson(jsonVal, MessageAttachments.class);
+            Thread thread5934 = new Thread(() -> {
 
-                    Collection<FileAttachment> fileAttachments = msgAttachments.getFileAttachments();
-                    for (FileAttachment fileAttachment : fileAttachments) {
-                        attachmentCnt++;
-                        long attachedFileObjId = fileAttachment.getObjectId();
-                        if (attachedFileObjId >= 0) {
-                            AbstractFile attachedFile = artifact.getSleuthkitCase().getAbstractFileById(attachedFileObjId);
-                            if (ImageUtils.thumbnailSupported(attachedFile)) {
+                try {
+                    // count the attachments from the TSK_ATTACHMENTS attribute.
+                    BlackboardAttribute attachmentsAttr = artifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ATTACHMENTS));
+                    if (attachmentsAttr != null) {
+                        String jsonVal = attachmentsAttr.getValueString();
+                        MessageAttachments msgAttachments = new Gson().fromJson(jsonVal, MessageAttachments.class);
+
+                        Collection<FileAttachment> fileAttachments = msgAttachments.getFileAttachments();
+                        for (FileAttachment fileAttachment : fileAttachments) {
+                            attachmentCnt++;
+                            long attachedFileObjId = fileAttachment.getObjectId();
+                            if (attachedFileObjId >= 0) {
+                                AbstractFile attachedFile = artifact.getSleuthkitCase().getAbstractFileById(attachedFileObjId);
+                                if (ImageUtils.thumbnailSupported(attachedFile)) {
+                                    mediaCnt++;
+                                }
+                            }
+                        }
+                    } else {  // backward compatibility - email message attachments are derived files, children of the message.
+                        attachmentCnt += artifact.getChildrenCount();
+                        for (Content childContent : artifact.getChildren()) {
+                            if (ImageUtils.thumbnailSupported(childContent)) {
                                 mediaCnt++;
-                            }  
+                            }
                         }
                     }
-                } else {  // backward compatibility - email message attachments are derived files, children of the message.
-                    attachmentCnt += artifact.getChildrenCount();
-                    for (Content childContent : artifact.getChildren()) {
-                        if (ImageUtils.thumbnailSupported(childContent)) {
-                            mediaCnt++;
-                        }
-                    }
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, String.format("Exception thrown "
+                            + "from getChildrenCount artifactID: %d",
+                            artifact.getArtifactID()), ex); //NON-NLS
                 }
-            } catch (TskCoreException ex) {
-                logger.log(Level.WARNING, String.format("Exception thrown "
-                        + "from getChildrenCount artifactID: %d",
-                        artifact.getArtifactID()), ex); //NON-NLS
+            });
+            thread5934.start();
+            try {
+                thread5934.join();
+            } catch (InterruptedException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
     }
 
     /**
      * Total number of attachments that this account is referenced.
-     * 
+     *
      * @return Attachment count
      */
     public int getAttachmentCnt() {
@@ -170,7 +192,7 @@ class AccountSummary {
 
     /**
      * Total number of messages that this account is referenced.
-     * 
+     *
      * @return Message count
      */
     public int getMessagesCnt() {
@@ -179,7 +201,7 @@ class AccountSummary {
 
     /**
      * Total number of Emails that this account is referenced.
-     * 
+     *
      * @return Email count
      */
     public int getEmailCnt() {
@@ -188,7 +210,7 @@ class AccountSummary {
 
     /**
      * Total number of call logs that this account is referenced.
-     * 
+     *
      * @return call log count
      */
     public int getCallLogCnt() {
@@ -197,7 +219,7 @@ class AccountSummary {
 
     /**
      * Total number of contacts in this accounts contact book.
-     * 
+     *
      * @return contact count
      */
     public int getContactsCnt() {
@@ -205,17 +227,18 @@ class AccountSummary {
     }
 
     /**
-     * Total number of thumbnail\media attachments that this account is referenced.
-     * 
+     * Total number of thumbnail\media attachments that this account is
+     * referenced.
+     *
      * @return Thumbnail count
      */
     public int getThumbnailCnt() {
         return mediaCnt;
     }
-    
+
     /**
      * Total number of contacts that this account is referenced.
-     * 
+     *
      * @return Contact count
      */
     public int getReferenceCnt() {

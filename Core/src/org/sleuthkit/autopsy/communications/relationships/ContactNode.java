@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.TimeZone;
 import java.util.logging.Level;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.datamodel.BlackboardArtifactNode;
@@ -77,10 +78,12 @@ final class ContactNode extends BlackboardArtifactNode {
             return sheet;
         }
 
-        Sheet.Set sheetSet = sheet.get(Sheet.PROPERTIES);
-        if (sheetSet == null) {
+        final Sheet.Set sheetSet;
+        if (sheet.get(Sheet.PROPERTIES) == null) {
             sheetSet = Sheet.createPropertiesSet();
             sheet.put(sheetSet);
+        } else {
+            sheetSet = sheet.get(Sheet.PROPERTIES);
         }
 
         // Sorting the attributes by type so that the duplicates can be removed
@@ -110,24 +113,37 @@ final class ContactNode extends BlackboardArtifactNode {
                     sheetSet, phoneNumList);
             addPropertiesToSheet(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_EMAIL.getLabel(),
                     sheetSet, emailList);
+            //WJS-TODO 5934
+            Thread thread5934 = new Thread(() -> {
+                for (BlackboardAttribute bba : otherList) {
+                    sheetSet.put(new NodeProperty<>(bba.getAttributeType().getTypeName(), bba.getAttributeType().getDisplayName(), "", bba.getDisplayString()));
+                }
 
-            for (BlackboardAttribute bba : otherList) {
-                sheetSet.put(new NodeProperty<>(bba.getAttributeType().getTypeName(), bba.getAttributeType().getDisplayName(), "", bba.getDisplayString()));
-            }
-
-            List<Content> children = artifact.getChildren();
-            if (children != null) {
-                int count = 0;
-                String imageLabelPrefix = "Image";
-                for (Content child : children) {
-                    if (child instanceof AbstractFile) {
-                        String imageLabel = imageLabelPrefix;
-                        if (count > 0) {
-                            imageLabel = imageLabelPrefix + "-" + count;
+                List<Content> children = null;
+                try {
+                    children = artifact.getChildren();
+                } catch (TskCoreException ex) {
+                    logger.log(Level.WARNING, "Error getting attribute values.", ex); //NON-NLS
+                }
+                if (children != null) {
+                    int count = 0;
+                    String imageLabelPrefix = "Image";
+                    for (Content child : children) {
+                        if (child instanceof AbstractFile) {
+                            String imageLabel = imageLabelPrefix;
+                            if (count > 0) {
+                                imageLabel = imageLabelPrefix + "-" + count;
+                            }
+                            sheetSet.put(new NodeProperty<>(imageLabel, imageLabel, imageLabel, child.getName()));
                         }
-                        sheetSet.put(new NodeProperty<>(imageLabel, imageLabel, imageLabel, child.getName()));
                     }
                 }
+            });
+            thread5934.start();
+            try {
+                thread5934.join();
+            } catch (InterruptedException ex) {
+                Exceptions.printStackTrace(ex);
             }
 
         } catch (TskCoreException ex) {

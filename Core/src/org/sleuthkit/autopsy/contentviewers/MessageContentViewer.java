@@ -75,6 +75,7 @@ import static org.sleuthkit.datamodel.BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SUB
 import static org.sleuthkit.datamodel.BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT;
 import org.sleuthkit.datamodel.Content;
 import org.sleuthkit.datamodel.SleuthkitCase;
+import org.sleuthkit.datamodel.TagName;
 import org.sleuthkit.datamodel.TskCoreException;
 import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments;
 import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments.FileAttachment;
@@ -611,13 +612,12 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
 
     private void configureAttachments() throws TskCoreException {
 
-        final Set<Attachment> attachments;
+        final Set<Attachment> attachments = new HashSet<>();
 
         //  Attachments are specified in an attribute TSK_ATTACHMENTS as JSON attribute
         BlackboardAttribute attachmentsAttr = artifact.getAttribute(new BlackboardAttribute.Type(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ATTACHMENTS));
         if (attachmentsAttr != null) {
 
-            attachments = new HashSet<>();
             String jsonVal = attachmentsAttr.getValueString();
             MessageAttachments msgAttachments = new Gson().fromJson(jsonVal, MessageAttachments.class);
 
@@ -630,12 +630,29 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
                 attachments.add(urlAttachment);
             }
         } else {    // For backward compatibility - email attachements are derived files and children of the email message artifact
-            attachments = new HashSet<>();
-            for (Content child : artifact.getChildren()) {
-                if (child instanceof AbstractFile) {
-                    attachments.add(new FileAttachment((AbstractFile) child));
+            //WJS-TODO 5934
+            Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+                try {
+                    for (Content child : artifact.getChildren()) {
+                        if (child instanceof AbstractFile) {
+                            attachments.add(new FileAttachment((AbstractFile) child));
+                        }
+                    }
+                } catch (TskCoreException ex) {
+                    Exceptions.printStackTrace(ex);
+                    return true;
                 }
+                return false;
+            });
+            
+            try{
+                if (future.get()){
+                    throw new TskCoreException("cant get children WJS-TODO 5934");
+                }
+            } catch (InterruptedException | ExecutionException ex) {
+                Exceptions.printStackTrace(ex);
             }
+
         }
 
         final int numberOfAttachments = attachments.size();
@@ -690,7 +707,6 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
             this.ccText.setText("");
             this.subjectText.setText(getAttributeValueSafe(artifact, TSK_SUBJECT));
             this.datetimeText.setText(getAttributeValueSafe(artifact, TSK_DATETIME));
-
             msgbodyTabbedPane.setEnabledAt(HTML_TAB_INDEX, false);
             msgbodyTabbedPane.setEnabledAt(RTF_TAB_INDEX, false);
             msgbodyTabbedPane.setEnabledAt(HDR_TAB_INDEX, false);
@@ -703,9 +719,18 @@ public class MessageContentViewer extends javax.swing.JPanel implements DataCont
     }
 
     private static String getAttributeValueSafe(BlackboardArtifact artifact, BlackboardAttribute.ATTRIBUTE_TYPE type) throws TskCoreException {
-        return Optional.ofNullable(artifact.getAttribute(new BlackboardAttribute.Type(type)))
-                .map(BlackboardAttribute::getDisplayString)
-                .orElse("");
+        //WJS-TODO 5934
+        Future<String> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return Optional.ofNullable(artifact.getAttribute(new BlackboardAttribute.Type(type)))
+                    .map(BlackboardAttribute::getDisplayString)
+                    .orElse("");
+        });
+        try {
+            return future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            return "";
+        }
     }
 
     /**

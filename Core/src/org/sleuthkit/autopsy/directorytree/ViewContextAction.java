@@ -261,13 +261,24 @@ public class ViewContextAction extends AbstractAction {
             DisplayableItemNode undecoratedParentNode = (DisplayableItemNode) ((DirectoryTreeFilterNode) parentTreeViewNode).getOriginal();
             undecoratedParentNode.setChildNodeSelectionInfo(new ContentNodeSelectionInfo(content));
             if (content instanceof BlackboardArtifact) {
-                BlackboardArtifact artifact = ((BlackboardArtifact) content);
-                long associatedId = artifact.getObjectID();
+                //WJS-TODO 5934
+                Future<Content> future2 = Executors.newSingleThreadExecutor().submit(() -> {
+                    BlackboardArtifact artifact = ((BlackboardArtifact) content);
+                    long associatedId = artifact.getObjectID();
+                    try {
+                        return artifact.getSleuthkitCase().getContentById(associatedId);
+                    } catch (TskCoreException ex) {
+                        logger.log(Level.SEVERE, "Could not find associated content from artifact with id %d", artifact.getId());
+                    }
+                    return null;
+                });
                 try {
-                    Content associatedFileContent = artifact.getSleuthkitCase().getContentById(associatedId);
-                    undecoratedParentNode.setChildNodeSelectionInfo(new ContentNodeSelectionInfo(associatedFileContent));
-                } catch (TskCoreException ex) {
-                    logger.log(Level.SEVERE, "Could not find associated content from artifact with id %d", artifact.getId());
+                    Content associatedFileContent = future2.get();
+                    if (associatedFileContent != null) {
+                        undecoratedParentNode.setChildNodeSelectionInfo(new ContentNodeSelectionInfo(associatedFileContent));
+                    }
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
                 }
             }
 

@@ -21,15 +21,20 @@ package org.sleuthkit.autopsy.communications.relationships;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 import org.openide.explorer.ExplorerManager;
 import org.openide.nodes.Node;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.datamodel.AbstractFile;
 import org.sleuthkit.datamodel.BlackboardArtifact;
 import org.sleuthkit.datamodel.Content;
+import org.sleuthkit.datamodel.TagName;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
@@ -38,9 +43,9 @@ import org.sleuthkit.datamodel.TskCoreException;
 public final class ContactDetailsPane extends javax.swing.JPanel implements ExplorerManager.Provider {
 
     private static final Logger logger = Logger.getLogger(ContactDetailsPane.class.getName());
-    
+
     private final static String DEFAULT_IMAGE_PATH = "/org/sleuthkit/autopsy/communications/images/defaultContact.png";
-    
+
     private final ExplorerManager explorerManager = new ExplorerManager();
     private final ImageIcon defaultImage;
 
@@ -50,7 +55,7 @@ public final class ContactDetailsPane extends javax.swing.JPanel implements Expl
     public ContactDetailsPane() {
         initComponents();
         nameLabel.setText("");
-        
+
         defaultImage = new ImageIcon(ContactDetailsPane.class.getResource(DEFAULT_IMAGE_PATH));
     }
 
@@ -64,9 +69,9 @@ public final class ContactDetailsPane extends javax.swing.JPanel implements Expl
             nameLabel.setText(nodes[0].getDisplayName());
             nameLabel.setIcon(null);
             propertySheet.setNodes(nodes);
-            
+
             BlackboardArtifact n = nodes[0].getLookup().lookup(BlackboardArtifact.class);
-            if(n != null) {
+            if (n != null) {
                 nameLabel.setIcon(getImageFromArtifact(n));
             }
         } else {
@@ -80,39 +85,48 @@ public final class ContactDetailsPane extends javax.swing.JPanel implements Expl
     public ExplorerManager getExplorerManager() {
         return explorerManager;
     }
-    
-    public ImageIcon getImageFromArtifact(BlackboardArtifact artifact){
+
+    public ImageIcon getImageFromArtifact(BlackboardArtifact artifact) {
         ImageIcon imageIcon = defaultImage;
-        
-        if(artifact == null) {
+
+        if (artifact == null) {
             return imageIcon;
         }
-        
+
         BlackboardArtifact.ARTIFACT_TYPE artifactType = BlackboardArtifact.ARTIFACT_TYPE.fromID(artifact.getArtifactTypeID());
-        if(artifactType != BlackboardArtifact.ARTIFACT_TYPE.TSK_CONTACT) {
+        if (artifactType != BlackboardArtifact.ARTIFACT_TYPE.TSK_CONTACT) {
             return imageIcon;
         }
-        
-        try {
-            for(Content content: artifact.getChildren()) {
-                if(content instanceof AbstractFile) {
-                    AbstractFile file = (AbstractFile)content;
-                    
-                    try {
-                        BufferedImage image = ImageIO.read(new File(file.getLocalAbsPath()));
-                        imageIcon = new ImageIcon(image);
-                        break;
-                    } catch (IOException ex) {
-                       // ImageIO.read will through an IOException if file is not an image
-                       // therefore we don't need to report this exception just try
-                       // the next file.
+        //WJS-TODO 5934
+        Future<ImageIcon> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                for (Content content : artifact.getChildren()) {
+                    if (content instanceof AbstractFile) {
+                        AbstractFile file = (AbstractFile) content;
+
+                        try {
+                            BufferedImage image = ImageIO.read(new File(file.getLocalAbsPath()));
+                            return new ImageIcon(image);
+                        } catch (IOException ex) {
+                            // ImageIO.read will through an IOException if file is not an image
+                            // therefore we don't need to report this exception just try
+                            // the next file.
+                        }
+
                     }
                 }
+            } catch (TskCoreException ex) {
+                logger.log(Level.WARNING, String.format("Unable to load image for contact: %d", artifact.getId()), ex);
             }
-        } catch (TskCoreException ex) {
-            logger.log(Level.WARNING, String.format("Unable to load image for contact: %d", artifact.getId()), ex);
-        }
+            return defaultImage;
+        });
         
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+
         return imageIcon;
     }
 
