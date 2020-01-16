@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -36,6 +37,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import javax.swing.Box;
@@ -46,6 +49,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.casemodule.Case;
 import static org.sleuthkit.autopsy.casemodule.Case.Events.CURRENT_CASE;
@@ -129,7 +133,7 @@ final public class FiltersPanel extends JPanel {
     public FiltersPanel() {
         initComponents();
 
-       initalizeDeviceAccountType();
+        initalizeDeviceAccountType();
 
         deviceRequiredLabel.setVisible(false);
         accountTypeRequiredLabel.setVisible(false);
@@ -255,10 +259,10 @@ final public class FiltersPanel extends JPanel {
             //clear the device filter widget when the case changes.
             devicesMap.clear();
             devicesListPane.removeAll();
-            
-            accountTypeMap.clear();           
-            accountTypeListPane.removeAll(); 
-            
+
+            accountTypeMap.clear();
+            accountTypeListPane.removeAll();
+
             initalizeDeviceAccountType();
         });
     }
@@ -269,7 +273,7 @@ final public class FiltersPanel extends JPanel {
         IngestManager.getInstance().removeIngestModuleEventListener(ingestListener);
         IngestManager.getInstance().removeIngestJobEventListener(ingestJobListener);
     }
-    
+
     private void initalizeDeviceAccountType() {
         CheckBoxIconPanel panel = createAccoutTypeCheckBoxPanel(Account.Type.DEVICE, true);
         accountTypeMap.put(Account.Type.DEVICE, panel.getCheckBox());
@@ -285,25 +289,34 @@ final public class FiltersPanel extends JPanel {
      */
     private boolean updateAccountTypeFilter(boolean selected) {
         boolean newOneFound = false;
-        try {
-            final CommunicationsManager communicationsManager = Case.getCurrentCaseThrows().getSleuthkitCase().getCommunicationsManager();
-            List<Account.Type> accountTypesInUse = communicationsManager.getAccountTypesInUse();
+        //WJS-TODO 5934
+        Future<List<Account.Type>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                final CommunicationsManager communicationsManager = Case.getCurrentCaseThrows().getSleuthkitCase().getCommunicationsManager();
+                return communicationsManager.getAccountTypesInUse();
 
-            for (Account.Type type : accountTypesInUse) {
-
-                if (!accountTypeMap.containsKey(type) && !type.equals(Account.Type.CREDIT_CARD)) {
-                    CheckBoxIconPanel panel = createAccoutTypeCheckBoxPanel(type, selected);
-                    accountTypeMap.put(type, panel.getCheckBox());
-                    accountTypeListPane.add(panel);
-
-                    newOneFound = true;
-                }
+            } catch (TskCoreException ex) {
+                logger.log(Level.WARNING, "Unable to update to update Account Types Filter", ex);
+            } catch (NoCurrentCaseException ex) {
+                logger.log(Level.WARNING, "A case is required to update the account types filter.", ex);
             }
+            return new ArrayList<>();
+        });
+        List<Account.Type> accountTypesInUse = new ArrayList<>();
+        try {
+            accountTypesInUse = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+        for (Account.Type type : accountTypesInUse) {
 
-        } catch (TskCoreException ex) {
-            logger.log(Level.WARNING, "Unable to update to update Account Types Filter", ex);
-        } catch (NoCurrentCaseException ex) {
-            logger.log(Level.WARNING, "A case is required to update the account types filter.", ex);
+            if (!accountTypeMap.containsKey(type) && !type.equals(Account.Type.CREDIT_CARD)) {
+                CheckBoxIconPanel panel = createAccoutTypeCheckBoxPanel(type, selected);
+                accountTypeMap.put(type, panel.getCheckBox());
+                accountTypeListPane.add(panel);
+
+                newOneFound = true;
+            }
         }
 
         if (newOneFound) {
@@ -340,30 +353,40 @@ final public class FiltersPanel extends JPanel {
      * @return true if a new device was found
      */
     private boolean updateDeviceFilter(boolean selected) {
+
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            boolean newOneFound = false;
+            try {
+                final SleuthkitCase sleuthkitCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+
+                for (DataSource dataSource : sleuthkitCase.getDataSources()) {
+                    String dsName = sleuthkitCase.getContentById(dataSource.getId()).getName();
+                    if (devicesMap.containsKey(dataSource.getDeviceId())) {
+                        continue;
+                    }
+
+                    final JCheckBox jCheckBox = new JCheckBox(dsName, selected);
+                    jCheckBox.addItemListener(validationListener);
+                    devicesListPane.add(jCheckBox);
+                    devicesMap.put(dataSource.getDeviceId(), jCheckBox);
+
+                    newOneFound = true;
+
+                }
+            } catch (NoCurrentCaseException ex) {
+                logger.log(Level.INFO, "Filter update cancelled.  Case is closed.");
+            } catch (TskCoreException tskCoreException) {
+                logger.log(Level.SEVERE, "There was a error loading the datasources for the case.", tskCoreException);
+            }
+            return newOneFound;
+        });
         boolean newOneFound = false;
         try {
-            final SleuthkitCase sleuthkitCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-
-            for (DataSource dataSource : sleuthkitCase.getDataSources()) {
-                String dsName = sleuthkitCase.getContentById(dataSource.getId()).getName();
-                if (devicesMap.containsKey(dataSource.getDeviceId())) {
-                    continue;
-                }
-
-                final JCheckBox jCheckBox = new JCheckBox(dsName, selected);
-                jCheckBox.addItemListener(validationListener);
-                devicesListPane.add(jCheckBox);
-                devicesMap.put(dataSource.getDeviceId(), jCheckBox);
-
-                newOneFound = true;
-
-            }
-        } catch (NoCurrentCaseException ex) {
-            logger.log(Level.INFO, "Filter update cancelled.  Case is closed.");
-        } catch (TskCoreException tskCoreException) {
-            logger.log(Level.SEVERE, "There was a error loading the datasources for the case.", tskCoreException);
+            newOneFound = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
-
         if (newOneFound) {
             devicesListPane.revalidate();
         }

@@ -39,6 +39,7 @@ import javax.swing.event.ListSelectionEvent;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.IngestJobInfoPanel;
@@ -98,13 +99,23 @@ public final class IngestJobSettingsPanel extends javax.swing.JPanel {
     public IngestJobSettingsPanel(IngestJobSettings settings, List<Content> dataSources) {
         this.settings = settings;
         this.dataSources.addAll(dataSources);
+        //WJS-TODO 5934
+        Thread thread5934 = new Thread(() -> {
+
+            try {
+                SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
+                ingestJobs.addAll(skCase.getIngestJobs());
+            } catch (NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "No open case", ex);
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Failed to load ingest job information", ex);
+            }
+        });
+        thread5934.start();
         try {
-            SleuthkitCase skCase = Case.getCurrentCaseThrows().getSleuthkitCase();
-            ingestJobs.addAll(skCase.getIngestJobs());
-        } catch (NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "No open case", ex);
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Failed to load ingest job information", ex);
+            thread5934.join();
+        } catch (InterruptedException ex) {
+            Exceptions.printStackTrace(ex);
         }
         for (IngestModuleTemplate moduleTemplate : settings.getIngestModuleTemplates()) {
             this.modules.add(new IngestModuleModel(moduleTemplate));

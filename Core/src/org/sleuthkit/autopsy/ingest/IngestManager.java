@@ -48,6 +48,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.swing.JOptionPane;
 import org.netbeans.api.progress.ProgressHandle;
 import org.openide.util.Cancellable;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.windows.WindowManager;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -304,11 +305,21 @@ public class IngestManager implements IngestProgressSnapshotProvider {
      */
     public void queueIngestJob(Collection<Content> dataSources, IngestJobSettings settings) {
         if (caseIsOpen) {
-            IngestJob job = new IngestJob(dataSources, settings, RuntimeProperties.runningWithGUI());
-            if (job.hasIngestPipeline()) {
-                long taskId = nextIngestManagerTaskId.incrementAndGet();
-                Future<Void> task = startIngestJobsExecutor.submit(new StartIngestJobTask(taskId, job));
-                startIngestJobFutures.put(taskId, task);
+            //WJS-TODO 5934 
+            Thread thread5934 = new Thread(() -> {
+
+                IngestJob job = new IngestJob(dataSources, settings, RuntimeProperties.runningWithGUI());
+                if (job.hasIngestPipeline()) {
+                    long taskId = nextIngestManagerTaskId.incrementAndGet();
+                    Future<Void> task = startIngestJobsExecutor.submit(new StartIngestJobTask(taskId, job));
+                    startIngestJobFutures.put(taskId, task);
+                }
+            });
+            thread5934.start();
+            try {
+                thread5934.join();
+            } catch (InterruptedException ex) {
+                Exceptions.printStackTrace(ex);
             }
         }
     }
@@ -491,10 +502,11 @@ public class IngestManager implements IngestProgressSnapshotProvider {
     public void addIngestJobEventListener(final PropertyChangeListener listener) {
         jobEventPublisher.addSubscriber(INGEST_JOB_EVENT_NAMES, listener);
     }
-    
+
     /**
-     * Adds an ingest job event property change listener for the given event types.
-     * 
+     * Adds an ingest job event property change listener for the given event
+     * types.
+     *
      * @param eventTypes The event types to listen for
      * @param listener   The PropertyChangeListener to be added
      */
@@ -512,18 +524,18 @@ public class IngestManager implements IngestProgressSnapshotProvider {
     public void removeIngestJobEventListener(final PropertyChangeListener listener) {
         jobEventPublisher.removeSubscriber(INGEST_JOB_EVENT_NAMES, listener);
     }
-    
+
     /**
      * Removes an ingest job event property change listener.
      *
      * @param eventTypes The event types to stop listening for
-     * @param listener The PropertyChangeListener to be removed.
+     * @param listener   The PropertyChangeListener to be removed.
      */
     public void removeIngestJobEventListener(Set<IngestJobEvent> eventTypes, final PropertyChangeListener listener) {
         eventTypes.forEach((IngestJobEvent event) -> {
             jobEventPublisher.removeSubscriber(event.toString(), listener);
         });
-    }   
+    }
 
     /**
      * Adds an ingest module event property change listener.
@@ -535,8 +547,9 @@ public class IngestManager implements IngestProgressSnapshotProvider {
     }
 
     /**
-     * Adds an ingest module event property change listener for given event types.
-     * 
+     * Adds an ingest module event property change listener for given event
+     * types.
+     *
      * @param eventTypes The event types to listen for
      * @param listener   The PropertyChangeListener to be removed.
      */
@@ -545,7 +558,7 @@ public class IngestManager implements IngestProgressSnapshotProvider {
             moduleEventPublisher.addSubscriber(event.toString(), listener);
         });
     }
-    
+
     /**
      * Removes an ingest module event property change listener.
      *
@@ -554,16 +567,16 @@ public class IngestManager implements IngestProgressSnapshotProvider {
     public void removeIngestModuleEventListener(final PropertyChangeListener listener) {
         moduleEventPublisher.removeSubscriber(INGEST_MODULE_EVENT_NAMES, listener);
     }
-    
+
     /**
      * Removes an ingest module event property change listener.
-     * 
+     *
      * @param eventTypes The event types to stop listening for
      * @param listener   The PropertyChangeListener to be removed.
      */
     public void removeIngestModuleEventListener(Set<IngestModuleEvent> eventTypes, final PropertyChangeListener listener) {
         moduleEventPublisher.removeSubscriber(INGEST_MODULE_EVENT_NAMES, listener);
-    }    
+    }
 
     /**
      * Publishes an ingest job event signifying an ingest job started.
