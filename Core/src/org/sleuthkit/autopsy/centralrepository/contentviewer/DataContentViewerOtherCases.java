@@ -66,10 +66,10 @@ import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.autopsy.centralrepository.datamodel.CorrelationAttributeNormalizationException;
 import org.sleuthkit.autopsy.corecomponentinterfaces.DataContentViewer;
 import org.sleuthkit.autopsy.centralrepository.datamodel.CorrelationAttributeInstance;
-import org.sleuthkit.autopsy.centralrepository.datamodel.EamArtifactUtil;
+import org.sleuthkit.autopsy.centralrepository.datamodel.CorrelationAttributeUtil;
 import org.sleuthkit.autopsy.centralrepository.datamodel.CorrelationCase;
 import org.sleuthkit.autopsy.centralrepository.datamodel.CorrelationDataSource;
-import org.sleuthkit.autopsy.centralrepository.datamodel.EamDbException;
+import org.sleuthkit.autopsy.centralrepository.datamodel.CentralRepoException;
 import org.sleuthkit.datamodel.AbstractFile;
 import org.sleuthkit.datamodel.BlackboardArtifact;
 import org.sleuthkit.datamodel.BlackboardArtifactTag;
@@ -77,9 +77,9 @@ import org.sleuthkit.datamodel.Content;
 import org.sleuthkit.datamodel.ContentTag;
 import org.sleuthkit.datamodel.TskCoreException;
 import org.sleuthkit.datamodel.TskException;
-import org.sleuthkit.autopsy.centralrepository.datamodel.EamDb;
 import org.sleuthkit.datamodel.SleuthkitCase;
 import org.sleuthkit.datamodel.TskData;
+import org.sleuthkit.autopsy.centralrepository.datamodel.CentralRepository;
 
 /**
  * View correlation results from other cases
@@ -210,7 +210,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
             StringBuilder msg = new StringBuilder(correlationAttributes.size());
             int percentage;
             try {
-                EamDb dbManager = EamDb.getInstance();
+                CentralRepository dbManager = CentralRepository.getInstance();
                 for (CorrelationAttributeInstance eamArtifact : correlationAttributes) {
                     try {
                         percentage = dbManager.getFrequencyPercentage(eamArtifact);
@@ -225,7 +225,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                         msg.toString(),
                         Bundle.DataContentViewerOtherCases_correlatedArtifacts_title(),
                         DEFAULT_OPTION, PLAIN_MESSAGE);
-            } catch (EamDbException ex) {
+            } catch (CentralRepoException ex) {
                 LOGGER.log(Level.SEVERE, "Error getting commonality details.", ex);
                 JOptionPane.showConfirmDialog(showCommonalityMenuItem,
                         Bundle.DataContentViewerOtherCases_correlatedArtifacts_failed(),
@@ -245,7 +245,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
         String details = Bundle.DataContentViewerOtherCases_caseDetailsDialog_noDetails();
         try {
             if (-1 != selectedRowViewIdx) {
-                EamDb dbManager = EamDb.getInstance();
+                CentralRepository dbManager = CentralRepository.getInstance();
                 int selectedRowModelIdx = filesTable.convertRowIndexToModel(selectedRowViewIdx);
                 List<OtherOccurrenceNodeData> rowList = filesTableModel.getListOfNodesForFile(selectedRowModelIdx);
                 if (!rowList.isEmpty()) {
@@ -266,7 +266,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                     details = Bundle.DataContentViewerOtherCases_caseDetailsDialog_noDetailsReference();
                 }
             }
-        } catch (EamDbException ex) {
+        } catch (CentralRepoException ex) {
             LOGGER.log(Level.SEVERE, "Error loading case details", ex);
         } finally {
             JOptionPane.showConfirmDialog(showCaseDetailsMenuItem,
@@ -473,20 +473,20 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
 
         // correlate on blackboard artifact attributes if they exist and supported
         BlackboardArtifact bbArtifact = getBlackboardArtifactFromNode(node);
-        if (bbArtifact != null && EamDb.isEnabled()) {
-            ret.addAll(EamArtifactUtil.makeInstancesFromBlackboardArtifact(bbArtifact, false));
+        if (bbArtifact != null && CentralRepository.isEnabled()) {
+            ret.addAll(CorrelationAttributeUtil.makeInstancesFromBlackboardArtifact(bbArtifact, false));
         }
 
         // we can correlate based on the MD5 if it is enabled      
-        if (this.file != null && EamDb.isEnabled() && this.file.getSize() > 0) {
+        if (this.file != null && CentralRepository.isEnabled() && this.file.getSize() > 0) {
             try {
 
-                List<CorrelationAttributeInstance.Type> artifactTypes = EamDb.getInstance().getDefinedCorrelationTypes();
+                List<CorrelationAttributeInstance.Type> artifactTypes = CentralRepository.getInstance().getDefinedCorrelationTypes();
                 String md5 = this.file.getMd5Hash();
                 if (md5 != null && !md5.isEmpty() && null != artifactTypes && !artifactTypes.isEmpty()) {
                     for (CorrelationAttributeInstance.Type aType : artifactTypes) {
                         if (aType.getId() == CorrelationAttributeInstance.FILES_TYPE_ID) {
-                            CorrelationCase corCase = EamDb.getInstance().getCase(Case.getCurrentCase());
+                            CorrelationCase corCase = CentralRepository.getInstance().getCase(Case.getCurrentCase());
                             try {
                                 ret.add(new CorrelationAttributeInstance(
                                         aType,
@@ -504,7 +504,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                         }
                     }
                 }
-            } catch (EamDbException | TskCoreException ex) {
+            } catch (CentralRepoException | TskCoreException ex) {
                 LOGGER.log(Level.SEVERE, "Error connecting to DB", ex); // NON-NLS
             }
             // If EamDb not enabled, get the Files default correlation type to allow Other Occurances to be enabled.  
@@ -520,7 +520,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                                     .get();
                     //The Central Repository is not enabled
                     ret.add(new CorrelationAttributeInstance(fileAttributeType, md5, null, null, "", "", TskData.FileKnown.UNKNOWN, this.file.getId()));
-                } catch (EamDbException ex) {
+                } catch (CentralRepoException ex) {
                     LOGGER.log(Level.SEVERE, "Error connecting to DB", ex); // NON-NLS
                 } catch (CorrelationAttributeNormalizationException ex) {
                     LOGGER.log(Level.INFO, String.format("Unable to create CorrelationAttributeInstance for value %s", md5), ex); // NON-NLS
@@ -539,11 +539,11 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
     private void setEarliestCaseDate() {
         String dateStringDisplay = Bundle.DataContentViewerOtherCases_earliestCaseNotAvailable();
 
-        if (EamDb.isEnabled()) {
+        if (CentralRepository.isEnabled()) {
             LocalDateTime earliestDate = LocalDateTime.now(DateTimeZone.UTC);
             DateFormat datetimeFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US);
             try {
-                EamDb dbManager = EamDb.getInstance();
+                CentralRepository dbManager = CentralRepository.getInstance();
                 List<CorrelationCase> cases = dbManager.getCases();
                 for (CorrelationCase aCase : cases) {
                     LocalDateTime caseDate = LocalDateTime.fromDateFields(datetimeFormat.parse(aCase.getCreationDate()));
@@ -555,7 +555,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
 
                 }
 
-            } catch (EamDbException ex) {
+            } catch (CentralRepoException ex) {
                 LOGGER.log(Level.SEVERE, "Error getting list of cases from database.", ex); // NON-NLS
             } catch (ParseException ex) {
                 LOGGER.log(Level.SEVERE, "Error parsing date of cases from database.", ex); // NON-NLS
@@ -584,8 +584,8 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
             String caseUUID = openCase.getName();
             HashMap<UniquePathKey, OtherOccurrenceNodeInstanceData> nodeDataMap = new HashMap<>();
 
-            if (EamDb.isEnabled()) {
-                List<CorrelationAttributeInstance> instances = EamDb.getInstance().getArtifactInstancesByTypeValue(corAttr.getCorrelationType(), corAttr.getCorrelationValue());
+            if (CentralRepository.isEnabled()) {
+                List<CorrelationAttributeInstance> instances = CentralRepository.getInstance().getArtifactInstancesByTypeValue(corAttr.getCorrelationType(), corAttr.getCorrelationValue());
 
                 for (CorrelationAttributeInstance artifactInstance : instances) {
 
@@ -614,7 +614,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                 }
             }
             return nodeDataMap;
-        } catch (EamDbException ex) {
+        } catch (CentralRepoException ex) {
             LOGGER.log(Level.SEVERE, "Error getting artifact instances from database.", ex); // NON-NLS
         } catch (CorrelationAttributeNormalizationException ex) {
             LOGGER.log(Level.INFO, "Error getting artifact instances from database.", ex); // NON-NLS
@@ -640,9 +640,9 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      *
      * @throws NoCurrentCaseException
      * @throws TskCoreException
-     * @throws EamDbException
+     * @throws CentralRepoException
      */
-    private List<AbstractFile> getCaseDbMatches(CorrelationAttributeInstance corAttr, Case openCase) throws NoCurrentCaseException, TskCoreException, EamDbException {
+    private List<AbstractFile> getCaseDbMatches(CorrelationAttributeInstance corAttr, Case openCase) throws NoCurrentCaseException, TskCoreException, CentralRepoException {
         //WJS-TODO 5934
         Future<List<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
             String md5 = corAttr.getCorrelationValue();
@@ -664,9 +664,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
         } catch (InterruptedException | ExecutionException ex) {
             Exceptions.printStackTrace(ex);
         }
-
         return caseDbArtifactInstances;
-
     }
 
     /**
@@ -677,9 +675,9 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      * @param newFile
      *
      * @throws TskCoreException
-     * @throws EamDbException
+     * @throws CentralRepoException
      */
-    private void addOrUpdateNodeData(final Case autopsyCase, Map<UniquePathKey, OtherOccurrenceNodeInstanceData> nodeDataMap, AbstractFile newFile) throws TskCoreException, EamDbException {
+    private void addOrUpdateNodeData(final Case autopsyCase, Map<UniquePathKey, OtherOccurrenceNodeInstanceData> nodeDataMap, AbstractFile newFile) throws TskCoreException, CentralRepoException {
 
         //WJS-TODO 5934
         Future<OtherOccurrenceNodeInstanceData> future = Executors.newSingleThreadExecutor().submit(() -> {
@@ -730,7 +728,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
         //   (either through the MD5 hash of the associated file or through a BlackboardArtifact)
         // - The central repo is disabled and the backing file has a valid MD5 hash
         this.file = this.getAbstractFileFromNode(node);
-        if (EamDb.isEnabled()) {
+        if (CentralRepository.isEnabled()) {
             return !getCorrelationAttributesFromNode(node).isEmpty();
         } else {
             return this.file != null
@@ -806,7 +804,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                     try {
                         dataSources.add(makeDataSourceString(nodeData.getCorrelationAttributeInstance().getCorrelationCase().getCaseUUID(), nodeData.getDeviceID(), nodeData.getDataSourceName()));
                         caseNames.put(nodeData.getCorrelationAttributeInstance().getCorrelationCase().getCaseUUID(), nodeData.getCorrelationAttributeInstance().getCorrelationCase());
-                    } catch (EamDbException ex) {
+                    } catch (CentralRepoException ex) {
                         LOGGER.log(Level.WARNING, "Unable to get correlation case for displaying other occurrence for case: " + nodeData.getCaseName(), ex);
                     }
                 } else {
@@ -881,7 +879,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                             } else if (currentCaseName != null && (casesTableModel.getCorrelationCase(casesTable.convertRowIndexToModel(selectedRow)).getCaseUUID().equals(currentCaseName))) {
                                 dataSourcesTableModel.addNodeData(nodeData);
                             }
-                        } catch (EamDbException ex) {
+                        } catch (CentralRepoException ex) {
                             LOGGER.log(Level.WARNING, "Unable to get correlation attribute instance from OtherOccurrenceNodeInstanceData for case " + nodeData.getCaseName(), ex);
                         }
                     }
@@ -918,7 +916,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
                                 filesTableModel.addNodeData(nodeData);
                             }
                         }
-                    } catch (EamDbException ex) {
+                    } catch (CentralRepoException ex) {
                         LOGGER.log(Level.WARNING, "Unable to get correlation attribute instance from OtherOccurrenceNodeInstanceData for case " + nodeData.getCaseName(), ex);
                     }
                 }
@@ -982,17 +980,17 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
      */
     private String getCaseCreatedDate(int caseTableRowIdx) {
         try {
-            if (EamDb.isEnabled()) {
+            if (CentralRepository.isEnabled()) {
                 CorrelationCase partialCase;
                 partialCase = casesTableModel.getCorrelationCase(casesTable.convertRowIndexToModel(caseTableRowIdx));
                 if (partialCase == null) {
                     return "";
                 }
-                return EamDb.getInstance().getCaseByUUID(partialCase.getCaseUUID()).getCreationDate();
+                return CentralRepository.getInstance().getCaseByUUID(partialCase.getCaseUUID()).getCreationDate();
             } else {
                 return Case.getCurrentCase().getCreatedDate();
             }
-        } catch (EamDbException ex) {
+        } catch (CentralRepoException ex) {
             LOGGER.log(Level.WARNING, "Error getting case created date for row: " + caseTableRowIdx, ex);
         }
         return "";
@@ -1150,7 +1148,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
 
     private void rightClickPopupMenuPopupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent evt) {//GEN-FIRST:event_rightClickPopupMenuPopupMenuWillBecomeVisible
         boolean enableCentralRepoActions = false;
-        if (EamDb.isEnabled() && filesTable.getSelectedRowCount() == 1) {
+        if (CentralRepository.isEnabled() && filesTable.getSelectedRowCount() == 1) {
             int rowIndex = filesTable.getSelectedRow();
             List<OtherOccurrenceNodeData> selectedFile = filesTableModel.getListOfNodesForFile(rowIndex);
             if (!selectedFile.isEmpty() && selectedFile.get(0) instanceof OtherOccurrenceNodeInstanceData) {
@@ -1207,7 +1205,7 @@ public class DataContentViewerOtherCases extends JPanel implements DataContentVi
             String tempCaseUUID;
             try {
                 tempCaseUUID = nodeData.getCorrelationAttributeInstance().getCorrelationCase().getCaseUUID();
-            } catch (EamDbException ignored) {
+            } catch (CentralRepoException ignored) {
                 //non central repo nodeData won't have a correlation case
                 try {
                     tempCaseUUID = Case.getCurrentCaseThrows().getName();
