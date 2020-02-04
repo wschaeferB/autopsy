@@ -22,12 +22,17 @@ import java.awt.GridBagConstraints;
 import java.awt.event.ActionListener;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.ImageIcon;
 import javax.swing.SpinnerNumberModel;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.coreutils.Logger;
+import org.sleuthkit.autopsy.datamodel.FileNode;
 import org.sleuthkit.datamodel.DataSource;
 import org.sleuthkit.datamodel.SleuthkitCase;
 import org.sleuthkit.datamodel.TskCoreException;
@@ -73,7 +78,7 @@ class GeoFilterPanel extends javax.swing.JPanel {
         gridBagConstraints.insets = new java.awt.Insets(0, 15, 0, 15);
         add(checkboxPanel, gridBagConstraints);
     }
-    
+
     @Override
     public void setEnabled(boolean enabled) {
         applyButton.setEnabled(enabled);
@@ -84,18 +89,18 @@ class GeoFilterPanel extends javax.swing.JPanel {
         daysLabel.setEnabled(enabled);
         daysSpinner.setEnabled(enabled);
     }
-    
+
     /**
      * Update the data source list with the current data sources
      */
     void updateDataSourceList() {
-         try {
+        try {
             initCheckboxList();
         } catch (TskCoreException ex) {
             logger.log(Level.WARNING, "Failed to initialize the CheckboxListPane", ex); //NON-NLS
         }
     }
-    
+
     /**
      * Clears the data source list.
      */
@@ -128,9 +133,9 @@ class GeoFilterPanel extends javax.swing.JPanel {
         if (dataSources.isEmpty()) {
             throw new GeoLocationUIException(Bundle.GeoFilterPanel_empty_dataSource());
         }
-        return new GeoFilter(allButton.isSelected(), 
-                showWaypointsWOTSCheckBox.isSelected(), 
-                numberModel.getNumber().intValue(), 
+        return new GeoFilter(allButton.isSelected(),
+                showWaypointsWOTSCheckBox.isSelected(),
+                numberModel.getNumber().intValue(),
                 dataSources);
     }
 
@@ -140,11 +145,28 @@ class GeoFilterPanel extends javax.swing.JPanel {
      * @throws TskCoreException
      */
     private void initCheckboxList() throws TskCoreException {
-        final SleuthkitCase sleuthkitCase = Case.getCurrentCase().getSleuthkitCase();
-        
-        for (DataSource dataSource : sleuthkitCase.getDataSources()) {
-            String dsName = sleuthkitCase.getContentById(dataSource.getId()).getName();
-            checkboxPanel.addElement(dsName, dataSource);
+        //WJS-TODO 5934
+        Future<TskCoreException> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                final SleuthkitCase sleuthkitCase = Case.getCurrentCase().getSleuthkitCase();
+
+                for (DataSource dataSource : sleuthkitCase.getDataSources()) {
+                    String dsName = sleuthkitCase.getContentById(dataSource.getId()).getName();
+                    checkboxPanel.addElement(dsName, dataSource);
+                }
+                return null;
+            } catch (TskCoreException ex) {
+                return ex;
+            }
+
+        });
+        try {
+            TskCoreException exception = future.get();
+            if (exception != null) {
+                throw exception;
+            }
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
     }
 

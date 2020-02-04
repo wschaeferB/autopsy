@@ -26,10 +26,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.AbstractAction;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.actions.Presenter;
 import org.sleuthkit.autopsy.casemodule.Case;
@@ -81,8 +85,18 @@ abstract class AddTagAction extends AbstractAction implements Presenter.Popup {
      *         apply to the Content specified.
      */
     public JMenuItem getMenuForContent(Collection<? extends Content> contentToTag) {
-        content.clear();
-        content.addAll(contentToTag);
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            content.clear();
+            content.addAll(contentToTag);
+            return true;
+        });
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+        }
+
         return new TagMenu();
     }
 

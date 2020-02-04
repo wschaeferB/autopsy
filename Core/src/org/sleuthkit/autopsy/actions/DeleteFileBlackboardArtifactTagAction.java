@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
@@ -33,6 +35,7 @@ import javax.swing.AbstractAction;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.SwingWorker;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.Utilities;
 import org.openide.util.actions.Presenter;
@@ -40,6 +43,7 @@ import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
 import org.sleuthkit.autopsy.casemodule.services.TagsManager;
 import org.sleuthkit.autopsy.coreutils.Logger;
+import org.sleuthkit.datamodel.AbstractFile;
 import org.sleuthkit.datamodel.BlackboardArtifact;
 import org.sleuthkit.datamodel.BlackboardArtifactTag;
 import org.sleuthkit.datamodel.TagName;
@@ -183,34 +187,45 @@ public class DeleteFileBlackboardArtifactTagAction extends AbstractAction implem
                 // the "Quick Tags" sub-menu. Selecting one of these menu items adds
                 // a tag with the associated tag name.
                 if (null != tagNamesMap && !tagNamesMap.isEmpty()) {
+
+                    //WJS-TODO 5934
+                    Future<List<BlackboardArtifactTag>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                        try {
+                            List<BlackboardArtifactTag> existingTagsList
+                                    = Case.getCurrentCaseThrows().getServices().getTagsManager()
+                                            .getBlackboardArtifactTagsByArtifact(artifact);
+                            return existingTagsList;
+                        } catch (TskCoreException | NoCurrentCaseException ex) {
+                            Logger.getLogger(TagMenu.class.getName())
+                                    .log(Level.SEVERE, "Error retrieving tags for TagMenu", ex); //NON-NLS
+                            return new ArrayList<>();
+                        }
+
+                    });
+                    List<BlackboardArtifactTag> existingTagsList = new ArrayList<>();
                     try {
-                        List<BlackboardArtifactTag> existingTagsList
-                                = Case.getCurrentCaseThrows().getServices().getTagsManager()
-                                        .getBlackboardArtifactTagsByArtifact(artifact);
-
-                        for (Map.Entry<String, TagName> entry : tagNamesMap.entrySet()) {
-                            String tagDisplayName = entry.getKey();
-
-                            TagName tagName = entry.getValue();
-                            for (BlackboardArtifactTag artifactTag : existingTagsList) {
-                                if (tagDisplayName.equals(artifactTag.getName().getDisplayName())) {
-                                    String notableString = tagName.getKnownStatus() == TskData.FileKnown.BAD ? TagsManager.getNotableTagLabel() : "";
-                                    JMenuItem tagNameItem = new JMenuItem(tagDisplayName + notableString);
-                                    tagNameItem.addActionListener((ActionEvent e) -> {
-                                        deleteTag(tagName, artifactTag, artifact.getArtifactID());
-                                    });
-                                    // Show custom tags before predefined tags in the menu
-                                    if (standardTagNames.contains(tagDisplayName)) {
-                                        standardTagMenuitems.add(tagNameItem);
-                                    } else {
-                                        add(tagNameItem);
-                                    }
+                        existingTagsList.addAll(future.get());
+                    } catch (InterruptedException | ExecutionException ex) {
+                        Exceptions.printStackTrace(ex);
+                    }
+                    for (Map.Entry<String, TagName> entry : tagNamesMap.entrySet()) {
+                        String tagDisplayName = entry.getKey();
+                        TagName tagName = entry.getValue();
+                        for (BlackboardArtifactTag artifactTag : existingTagsList) {
+                            if (tagDisplayName.equals(artifactTag.getName().getDisplayName())) {
+                                String notableString = tagName.getKnownStatus() == TskData.FileKnown.BAD ? TagsManager.getNotableTagLabel() : "";
+                                JMenuItem tagNameItem = new JMenuItem(tagDisplayName + notableString);
+                                tagNameItem.addActionListener((ActionEvent e) -> {
+                                    deleteTag(tagName, artifactTag, artifact.getArtifactID());
+                                });
+                                // Show custom tags before predefined tags in the menu
+                                if (standardTagNames.contains(tagDisplayName)) {
+                                    standardTagMenuitems.add(tagNameItem);
+                                } else {
+                                    add(tagNameItem);
                                 }
                             }
                         }
-                    } catch (TskCoreException | NoCurrentCaseException ex) {
-                        Logger.getLogger(TagMenu.class.getName())
-                                .log(Level.SEVERE, "Error retrieving tags for TagMenu", ex); //NON-NLS
                     }
                 }
 

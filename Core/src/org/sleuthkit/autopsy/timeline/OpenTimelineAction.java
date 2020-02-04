@@ -19,6 +19,11 @@
 package org.sleuthkit.autopsy.timeline;
 
 import java.awt.Component;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javafx.application.Platform;
 import javax.swing.ImageIcon;
@@ -28,6 +33,7 @@ import org.openide.awt.ActionID;
 import org.openide.awt.ActionReference;
 import org.openide.awt.ActionReferences;
 import org.openide.awt.ActionRegistration;
+import org.openide.util.Exceptions;
 import org.openide.util.HelpCtx;
 import org.openide.util.NbBundle;
 import org.openide.util.actions.CallableSystemAction;
@@ -40,14 +46,13 @@ import org.sleuthkit.autopsy.coreutils.ModuleSettings;
 import org.sleuthkit.autopsy.coreutils.ThreadConfined;
 import org.sleuthkit.datamodel.AbstractFile;
 import org.sleuthkit.datamodel.BlackboardArtifact;
+import org.sleuthkit.datamodel.BlackboardArtifactTag;
 import org.sleuthkit.datamodel.TskCoreException;
 
 /**
  * An Action that opens the Timeline window. Has methods to open the window in
  * various specific states (e.g., showing a specific artifact in the List View)
  */
-
-
 @ActionID(category = "Tools", id = "org.sleuthkit.autopsy.timeline.Timeline")
 @ActionRegistration(displayName = "#CTL_MakeTimeline", lazy = false)
 @ActionReferences(value = {
@@ -64,7 +69,6 @@ public final class OpenTimelineAction extends CallableSystemAction {
     private final JButton toolbarButton = new JButton(getName(),
             new ImageIcon(getClass().getResource("images/btn_icon_timeline_colorized_26.png"))); //NON-NLS
 
-
     public OpenTimelineAction() {
         toolbarButton.addActionListener(actionEvent -> performAction());
         menuItem = super.getMenuPresenter();
@@ -74,9 +78,10 @@ public final class OpenTimelineAction extends CallableSystemAction {
     @Override
     public boolean isEnabled() {
         /**
-         * We used to also check if Case.getCurrentOpenCase().hasData() was true. We
-         * disabled that check because if it is executed while a data source is
-         * being added, it blocks the edt. We still do that in ImageGallery.
+         * We used to also check if Case.getCurrentOpenCase().hasData() was
+         * true. We disabled that check because if it is executed while a data
+         * source is being added, it blocks the edt. We still do that in
+         * ImageGallery.
          */
         return super.isEnabled() && Case.isCaseOpen() && Installer.isJavaFxInited();
     }
@@ -104,17 +109,28 @@ public final class OpenTimelineAction extends CallableSystemAction {
         "OpenTimelineAction.settingsErrorMessage=Failed to initialize timeline settings.",
         "OpenTimeLineAction.msgdlg.text=Could not create timeline, there are no data sources."})
     synchronized private void showTimeline(AbstractFile file, BlackboardArtifact artifact) throws TskCoreException {
+        //WJS-TODO 5934
+        Future<Boolean> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return Case.getCurrentCaseThrows().hasData();
+            } catch (NoCurrentCaseException e) {
+                return false;
+            }
+        });
         try {
-            Case currentCase = Case.getCurrentCaseThrows();
-            if (currentCase.hasData() == false) {
+            if (future.get() == false) {
                 MessageNotifyUtil.Message.info(Bundle.OpenTimeLineAction_msgdlg_text());
                 logger.log(Level.INFO, "Could not create timeline, there are no data sources.");// NON-NLS
                 return;
             }
+        } catch (InterruptedException | ExecutionException ex) {
+            return;
+        }
+        try {
             TimeLineController controller = TimeLineModule.getController();
             controller.showTimeLine(file, artifact);
         } catch (NoCurrentCaseException e) {
-            //there is no case...   Do nothing.
+
         }
     }
 
@@ -193,12 +209,21 @@ public final class OpenTimelineAction extends CallableSystemAction {
     }
 
     private boolean tooManyFiles() {
+        //WJS-TODO 5934
+        Future<Long> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return Case.getCurrentCaseThrows().getSleuthkitCase().countFilesWhere("1 = 1");
+            } catch (NoCurrentCaseException ex) {
+                logger.log(Level.SEVERE, "Can not open timeline with no case open.", ex);
+            } catch (TskCoreException ex) {
+                logger.log(Level.SEVERE, "Error counting files in the DB.", ex);
+            }
+            return 0L;
+        });
         try {
-            return FILE_LIMIT < Case.getCurrentCaseThrows().getSleuthkitCase().countFilesWhere("1 = 1");
-        } catch (NoCurrentCaseException ex) {
-            logger.log(Level.SEVERE, "Can not open timeline with no case open.", ex);
-        } catch (TskCoreException ex) {
-            logger.log(Level.SEVERE, "Error counting files in the DB.", ex);
+            return FILE_LIMIT < future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
         }
         //if there is any doubt (no case, tskcore error, etc) just disable .
         return false;

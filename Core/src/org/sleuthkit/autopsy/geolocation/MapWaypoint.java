@@ -27,12 +27,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
 import javax.swing.ImageIcon;
 import javax.swing.JMenuItem;
 import org.jxmapviewer.viewer.GeoPosition;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle.Messages;
 import org.sleuthkit.autopsy.actions.AddBlackboardArtifactTagAction;
 import org.sleuthkit.autopsy.actions.AddContentTagAction;
@@ -195,8 +199,23 @@ final class MapWaypoint extends KdTree.XYZPoint implements org.jxmapviewer.viewe
     JMenuItem[] getMenuItems() throws TskCoreException {
         List<JMenuItem> menuItems = new ArrayList<>();
         BlackboardArtifact artifact = dataModelWaypoint.getArtifact();
-        Content content = artifact.getSleuthkitCase().getContentById(artifact.getObjectID());
-
+        //WJS-TODO 5934
+        Future<Content> future = Executors.newSingleThreadExecutor().submit(() -> {
+            try {
+                return artifact.getSleuthkitCase().getContentById(artifact.getObjectID());
+            } catch (TskCoreException ex) {
+                return null;
+            }
+        });
+        Content content;
+        try {
+            content = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            throw new TskCoreException("Get failed", ex);
+        }
+        if (content == null) {
+            throw new TskCoreException("Unable to get content");
+        }
         menuItems.addAll(getTimelineMenuItems(dataModelWaypoint.getArtifact()));
         menuItems.addAll(getDataModelActionFactoryMenuItems(artifact, content));
         menuItems.add(DeleteFileContentTagAction.getInstance().getMenuForFiles(Arrays.asList((AbstractFile) content)));
@@ -241,8 +260,17 @@ final class MapWaypoint extends KdTree.XYZPoint implements org.jxmapviewer.viewe
     })
     private List<JMenuItem> getDataModelActionFactoryMenuItems(BlackboardArtifact artifact, Content content) {
         List<JMenuItem> menuItems = new ArrayList<>();
-
-        List<Action> actions = DataModelActionsFactory.getActions(content, true);
+        //WJS-TODO 5934
+        Future<List<Action>> future = Executors.newSingleThreadExecutor().submit(() -> {
+            return DataModelActionsFactory.getActions(content, true);
+        });
+        List<Action> actions;
+        try {
+            actions = future.get();
+        } catch (InterruptedException | ExecutionException ex) {
+            Exceptions.printStackTrace(ex);
+            actions = new ArrayList<>();
+        }
         for (Action action : actions) {
             if (action == null) {
                 menuItems.add(null);

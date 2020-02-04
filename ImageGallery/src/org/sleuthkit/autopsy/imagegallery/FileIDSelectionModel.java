@@ -23,6 +23,9 @@ import java.beans.PropertyVetoException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javafx.beans.Observable;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -33,6 +36,7 @@ import javafx.collections.ObservableSet;
 import javax.swing.SwingUtilities;
 import org.openide.nodes.AbstractNode;
 import org.openide.nodes.Children;
+import org.openide.util.Exceptions;
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.datamodel.FileNode;
 import org.sleuthkit.datamodel.TskCoreException;
@@ -68,12 +72,26 @@ public class FileIDSelectionModel {
             SwingUtilities.invokeLater(() -> {
                 ArrayList<FileNode> fileNodes = new ArrayList<>();
                 for (Long id : fileIDs) {
+                    //WJS-TODO 5934
+                    Future<FileNode> future = Executors.newSingleThreadExecutor().submit(() -> {
+                        try {
+                            return new FileNode(controller.getCaseDatabase().getAbstractFileById(id));
+                        } catch (TskCoreException ex) {
+                            LOGGER.log(Level.SEVERE, "Failed to get abstract file by its ID", ex); //NON-NLS
+                        }
+                        return null;
+                    });
                     try {
-                        fileNodes.add(new FileNode(controller.getCaseDatabase().getAbstractFileById(id)));
-                    } catch (TskCoreException ex) {
-                        LOGGER.log(Level.SEVERE, "Failed to get abstract file by its ID", ex); //NON-NLS
+                        FileNode node = future.get();
+                        if (node != null) {
+                            fileNodes.add(node);
+                        }
+                    } catch (InterruptedException | ExecutionException ex) {
+                        Exceptions.printStackTrace(ex);
                     }
+
                 }
+
                 FileNode[] fileNodeArray = fileNodes.stream().toArray(FileNode[]::new);
                 Children.Array children = new Children.Array();
                 children.add(fileNodeArray);

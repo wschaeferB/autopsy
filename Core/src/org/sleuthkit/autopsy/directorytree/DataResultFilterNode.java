@@ -25,6 +25,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -33,6 +36,7 @@ import org.openide.nodes.AbstractNode;
 import org.openide.nodes.FilterNode;
 import org.openide.nodes.Node;
 import org.openide.nodes.Sheet;
+import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.Utilities;
 import org.sleuthkit.autopsy.actions.AddBlackboardArtifactTagAction;
@@ -97,8 +101,8 @@ public class DataResultFilterNode extends FilterNode {
     // Assumptions are made in GetPreferredActionsDisplayableItemNodeVisitor that
     // sourceEm is the directory tree explorer manager.
     private final ExplorerManager sourceEm;
-    
-       /**
+
+    /**
      * Constructs a node used to wrap another node before passing it to the
      * result viewers. The wrapper node defines the actions associated with the
      * wrapped node and may filter out some of its children.
@@ -106,7 +110,7 @@ public class DataResultFilterNode extends FilterNode {
      * @param node The node to wrap.
      */
     public DataResultFilterNode(Node node) {
-       this(node, null);
+        this(node, null);
     }
 
     /**
@@ -260,18 +264,18 @@ public class DataResultFilterNode extends FilterNode {
         protected Node[] createNodes(Node key) {
             // if displaying the results from the Data Source tree
             // filter out artifacts
-          
+
             // In older versions of Autopsy,  attachments were children of email/message artifacts
             // and hence email/messages with attachments are shown in the tree data source tree,
             BlackboardArtifact art = key.getLookup().lookup(BlackboardArtifact.class);
             if (art != null && filterArtifacts
                     && ((FilterNodeUtils.showMessagesInDatasourceTree() == false)
-                         || (FilterNodeUtils.showMessagesInDatasourceTree()
-                                && art.getArtifactTypeID() != BlackboardArtifact.ARTIFACT_TYPE.TSK_EMAIL_MSG.getTypeID()
-                                && art.getArtifactTypeID() != BlackboardArtifact.ARTIFACT_TYPE.TSK_MESSAGE.getTypeID()))) {
+                    || (FilterNodeUtils.showMessagesInDatasourceTree()
+                    && art.getArtifactTypeID() != BlackboardArtifact.ARTIFACT_TYPE.TSK_EMAIL_MSG.getTypeID()
+                    && art.getArtifactTypeID() != BlackboardArtifact.ARTIFACT_TYPE.TSK_MESSAGE.getTypeID()))) {
                 return new Node[]{};
             }
-                
+
             return new Node[]{new DataResultFilterNode(key, sourceEm)};
         }
     }
@@ -296,7 +300,7 @@ public class DataResultFilterNode extends FilterNode {
             for (Action a : ban.getActions(true)) {
                 actionsList.add(a);
             }
-            
+
             //Add seperator between the decorated actions and the actions from the node itself.
             actionsList.add(null);
             BlackboardArtifact ba = ban.getLookup().lookup(BlackboardArtifact.class);
@@ -365,8 +369,17 @@ public class DataResultFilterNode extends FilterNode {
                 actionsList.addAll(DataModelActionsFactory.getActions(c, false));
             }
             if (n != null) {
-                final Collection<AbstractFile> selectedFilesList
-                        = new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+                //WJS-TODO 5934
+                Future<Collection<AbstractFile>> future = Executors.newSingleThreadExecutor().submit(() -> {
+                    return new HashSet<>(Utilities.actionsGlobalContext().lookupAll(AbstractFile.class));
+                });
+                Collection<AbstractFile> selectedFilesList;
+                try {
+                    selectedFilesList = future.get();
+                } catch (InterruptedException | ExecutionException ex) {
+                    Exceptions.printStackTrace(ex);
+                    selectedFilesList = new HashSet<>();
+                }
                 actionsList.add(null); // creates a menu separator
                 actionsList.add(new NewWindowViewAction(
                         NbBundle.getMessage(this.getClass(), "DataResultFilterNode.action.viewInNewWin.text"), n));
@@ -496,12 +509,12 @@ public class DataResultFilterNode extends FilterNode {
 
         @Override
         public AbstractAction visit(BlackboardArtifactNode ban) {
-            
+
             Action preferredAction = ban.getPreferredAction();
-            if(preferredAction instanceof AbstractAction) {
+            if (preferredAction instanceof AbstractAction) {
                 return (AbstractAction) preferredAction;
             }
-            
+
             BlackboardArtifact artifact = ban.getArtifact();
             try {
                 if ((artifact.getArtifactTypeID() == ARTIFACT_TYPE.TSK_EMAIL_MSG.getTypeID())
@@ -575,7 +588,7 @@ public class DataResultFilterNode extends FilterNode {
             // is a DirectoryTreeFilterNode that wraps the dataModelNode. We need
             // to set that wrapped node as the selection and root context of the 
             // directory tree explorer manager (sourceEm)
-            if(sourceEm == null || sourceEm.getSelectedNodes().length == 0) {
+            if (sourceEm == null || sourceEm.getSelectedNodes().length == 0) {
                 return null;
             }
             final Node currentSelectionInDirectoryTree = sourceEm.getSelectedNodes()[0];
@@ -618,7 +631,7 @@ public class DataResultFilterNode extends FilterNode {
          * @return
          */
         private AbstractAction openParent(AbstractNode node) {
-            if(sourceEm == null) {
+            if (sourceEm == null) {
                 return null;
             }
             // @@@ Why do we ignore node?
