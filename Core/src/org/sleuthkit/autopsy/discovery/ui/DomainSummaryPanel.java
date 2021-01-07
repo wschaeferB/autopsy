@@ -32,6 +32,7 @@ import javax.swing.ListCellRenderer;
 import org.openide.util.NbBundle;
 import org.sleuthkit.autopsy.coreutils.ThreadConfined;
 import org.sleuthkit.autopsy.datamodel.ContentUtils;
+import org.sleuthkit.autopsy.discovery.search.SearchData;
 
 /**
  * Class which displays a preview and details about a domain.
@@ -67,6 +68,7 @@ class DomainSummaryPanel extends javax.swing.JPanel implements ListCellRenderer<
         filesDownloadedLabel = new javax.swing.JLabel();
         totalVisitsLabel = new javax.swing.JLabel();
         domainNotabilityLabel = new javax.swing.JLabel();
+        categoryLabel = new javax.swing.JLabel();
 
         setBorder(javax.swing.BorderFactory.createEtchedBorder());
 
@@ -88,19 +90,26 @@ class DomainSummaryPanel extends javax.swing.JPanel implements ListCellRenderer<
                 .addContainerGap()
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addComponent(domainNameLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addComponent(activityLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addComponent(domainNotabilityLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addGroup(layout.createSequentialGroup()
-                        .addComponent(totalVisitsLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 253, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                        .addComponent(pagesLabel, javax.swing.GroupLayout.DEFAULT_SIZE, 346, Short.MAX_VALUE))
-                    .addComponent(filesDownloadedLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
+                            .addComponent(filesDownloadedLabel, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, 300, Short.MAX_VALUE)
+                            .addComponent(activityLabel, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addComponent(domainNotabilityLabel, javax.swing.GroupLayout.DEFAULT_SIZE, 300, Short.MAX_VALUE)
+                            .addComponent(categoryLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addGap(4, 4, 4))
+                    .addComponent(pagesLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(totalVisitsLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
                     .addComponent(numberOfImagesLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                     .addComponent(sampleImageLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addContainerGap())
         );
+
+        layout.linkSize(javax.swing.SwingConstants.HORIZONTAL, new java.awt.Component[] {activityLabel, filesDownloadedLabel});
+
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
@@ -108,31 +117,36 @@ class DomainSummaryPanel extends javax.swing.JPanel implements ListCellRenderer<
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(layout.createSequentialGroup()
                         .addComponent(numberOfImagesLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 17, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 8, Short.MAX_VALUE)
                         .addComponent(sampleImageLabel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
                     .addGroup(layout.createSequentialGroup()
                         .addComponent(domainNameLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                        .addComponent(activityLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 15, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addComponent(activityLabel, javax.swing.GroupLayout.Alignment.TRAILING, javax.swing.GroupLayout.PREFERRED_SIZE, 15, javax.swing.GroupLayout.PREFERRED_SIZE)
+                            .addComponent(domainNotabilityLabel, javax.swing.GroupLayout.Alignment.TRAILING))
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(domainNotabilityLabel)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                            .addComponent(filesDownloadedLabel, javax.swing.GroupLayout.DEFAULT_SIZE, 14, Short.MAX_VALUE)
+                            .addComponent(categoryLabel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(filesDownloadedLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 14, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(totalVisitsLabel, javax.swing.GroupLayout.DEFAULT_SIZE, 14, Short.MAX_VALUE)
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                            .addComponent(totalVisitsLabel, javax.swing.GroupLayout.DEFAULT_SIZE, 14, Short.MAX_VALUE)
-                            .addComponent(pagesLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 15, javax.swing.GroupLayout.PREFERRED_SIZE))
+                        .addComponent(pagesLabel, javax.swing.GroupLayout.PREFERRED_SIZE, 15, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addGap(1, 1, 1)))
                 .addContainerGap())
         );
 
         layout.linkSize(javax.swing.SwingConstants.VERTICAL, new java.awt.Component[] {domainNotabilityLabel, totalVisitsLabel});
 
+        layout.linkSize(javax.swing.SwingConstants.VERTICAL, new java.awt.Component[] {activityLabel, filesDownloadedLabel});
+
     }// </editor-fold>//GEN-END:initComponents
 
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JLabel activityLabel;
+    private javax.swing.JLabel categoryLabel;
     private javax.swing.JLabel domainNameLabel;
     private javax.swing.JLabel domainNotabilityLabel;
     private javax.swing.JLabel filesDownloadedLabel;
@@ -149,17 +163,27 @@ class DomainSummaryPanel extends javax.swing.JPanel implements ListCellRenderer<
         "DomainSummaryPanel.pages.text=Page views in past 60 days: ",
         "DomainSummaryPanel.totalPages.text=Total page views: ",
         "DomainSummaryPanel.downloads.text=Files downloaded: ",
-        "DomainSummaryPanel.notability.text=Domain notability: ",
+        "DomainSummaryPanel.notability.text=Previously tagged as notable: ",
         "DomainSummaryPanel.unknown.text=User role: Unknown",
         "DomainSummaryPanel.known.text=User role: Known account type(s)",
-        "DomainSummaryPanel.loadingImages.text=Loading thumbnail..."})
+        "DomainSummaryPanel.category.text=Category: ",
+        "DomainSummaryPanel.loadingImages.text=Loading thumbnail...",
+        "DomainSummaryPanel.no.text=No",
+        "DomainSummaryPanel.yes.text=Yes"})
     @Override
     public Component getListCellRendererComponent(JList<? extends DomainWrapper> list, DomainWrapper value, int index, boolean isSelected, boolean cellHasFocus) {
         domainNameLabel.setText(value.getResultDomain().getDomain());
         TimeZone timeZone = ContentUtils.getTimeZone(value.getResultDomain().getDataSource());
         String startDate = formatDate(value.getResultDomain().getActivityStart(), timeZone);
         String endDate = formatDate(value.getResultDomain().getActivityEnd(), timeZone);
-        domainNotabilityLabel.setText(Bundle.DomainSummaryPanel_notability_text() + value.getResultDomain().getPreviouslyNotableInCR().toString());
+        String notability = Bundle.DomainSummaryPanel_notability_text();
+        if (value.getResultDomain().getPreviouslyNotableInCR() == SearchData.PreviouslyNotable.PREVIOUSLY_NOTABLE) {
+            notability += Bundle.DomainSummaryPanel_yes_text();
+        } else {
+            notability += Bundle.DomainSummaryPanel_no_text();
+        }
+        domainNotabilityLabel.setText(notability);
+        categoryLabel.setText(Bundle.DomainSummaryPanel_category_text() + value.getResultDomain().getWebCategory());
         activityLabel.setText(Bundle.DomainSummaryPanel_activity_text(startDate, endDate));
         totalVisitsLabel.setText(Bundle.DomainSummaryPanel_totalPages_text() + value.getResultDomain().getTotalPageViews());
         pagesLabel.setText(Bundle.DomainSummaryPanel_pages_text() + value.getResultDomain().getPageViewsInLast60Days());
