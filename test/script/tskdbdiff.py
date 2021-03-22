@@ -551,6 +551,10 @@ def normalize_db_entry(line, files_table, vs_parts_table, vs_info_table, fs_info
             path = fs_info_table[obj_id]
         elif obj_id in reports_table.keys():
             path = reports_table[obj_id]
+        elif obj_id in images_table.keys():
+            path = images_table[obj_id]
+        elif obj_id in accounts_table.keys():
+            path = accounts_table[obj_id]
         # remove host name (for multi-user) and dates/times from path for reports
         if path is not None:
             if 'ModuleOutput' in path:
@@ -561,7 +565,6 @@ def normalize_db_entry(line, files_table, vs_parts_table, vs_info_table, fs_info
                     path = path[:path.rfind('\\')]
             if 'Reports\\AutopsyTestCase HTML Report' in path:
                 path = 'Reports\\AutopsyTestCase HTML Report'
-
         if parent_id in files_table.keys():
             parent_path = files_table[parent_id]
         elif parent_id in vs_parts_table.keys():
@@ -570,6 +573,8 @@ def normalize_db_entry(line, files_table, vs_parts_table, vs_info_table, fs_info
             parent_path = vs_info_table[parent_id]
         elif parent_id in fs_info_table.keys():
             parent_path = fs_info_table[parent_id]
+        elif parent_id in reports_table.keys():
+            parent_path = reports_table[parent_id]
         elif parent_id in images_table.keys():
             parent_path = images_table[parent_id]
         elif parent_id in accounts_table.keys():
@@ -577,21 +582,24 @@ def normalize_db_entry(line, files_table, vs_parts_table, vs_info_table, fs_info
         elif parent_id == 'NULL':
             parent_path = "NULL"
         
+        if path is not None:
+            # Remove object ID from Unalloc file names and regripper output
+            path = re.sub('Unalloc_[0-9]+_', 'Unalloc_', path)
+            path = re.sub('regripper\-[0-9]+\-full', 'regripper-full', path)
+            newLine = newLine + path + ', '
+        else:
+            path = newLine + "Object ID Omitted, "
         # Remove host name (for multi-user) from parent_path
         if parent_path is not None:
             if 'ModuleOutput' in parent_path:
                 # skip past the host name (if any)
                 parent_path = parent_path[parent_path.find('ModuleOutput'):]
-
-        if path and parent_path:
-            # Remove object ID from Unalloc file names and regripper output
-            path = re.sub('Unalloc_[0-9]+_', 'Unalloc_', path)
-            path = re.sub('regripper\-[0-9]+\-full', 'regripper-full', path)
             parent_path = re.sub('Unalloc_[0-9]+_', 'Unalloc_', parent_path)
             parent_path = re.sub('regripper\-[0-9]+\-full', 'regripper-full', parent_path)
-            return newLine + path + ', ' + parent_path + ', ' + ', '.join(fields_list[2:]) + ');'
+            newLine = newLine + parent_path + ', '
         else:
-            return newLine + '"OBJECT IDS OMITTED", ' + ', '.join(fields_list[2:]) + ');'  #omit parent object id and object id when we cant annonymize them
+            newLine = newLine + "Parent Object ID Omitted, "
+        return newLine + ', '.join(fields_list[2:]) + ');'  #omit parent object id and object id when we cant annonymize them
     # remove time-based information, ie Test_6/11/14 -> Test    
     elif report_index:
         fields_list[1] = "AutopsyTestCase"
